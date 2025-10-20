@@ -14,10 +14,13 @@ import tempfile
 import textwrap
 import urllib.parse
 
+import numpy as np
+
 import pyogrio
 import geopandas as gpd
 
 import rasterio
+import rioxarray
 from rasterio.io import MemoryFile
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.enums import Resampling
@@ -235,6 +238,17 @@ def vector_to_geojson4326(src: str, dst: str = None, debug: bool = False) -> str
         
     return dst
     
+
+def raster_specs(src: str) -> dict:
+    da = rioxarray.open_rasterio(src, masked=True)
+    min_val = float(da.min().compute())
+    max_val = float(da.max().compute())
+    nodata_val = da.rio.nodata.item() if da.rio.nodata is not None else np.nan
+    return {
+        'min': min_val,
+        'max': max_val,
+        'nodata': nodata_val if not np.isnan(nodata_val) else str(np.nan),
+    }
 
 def is_cog(src: str) -> bool:
     p = src if src.startswith(("/vsicurl/", "/vsis3/", "s3://")) else ("/vsicurl/"+src if src.startswith(("http://","https://")) else src)

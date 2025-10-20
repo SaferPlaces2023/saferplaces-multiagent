@@ -239,8 +239,8 @@ class DigitalTwinTool(BaseAgentTool):
                             'type': 'raster',
                             'src': api_response['files']['dem'],
                             'metadata': {
-                                'nodata': str(np.nan),
-                                'colormap_name': 'viridis',  # TODO: use a class ColorMaps
+                                'surface_type': 'dem',
+                                ** utils.raster_specs(api_response['files']['dem']),
                             },
                         }, 
                     ] if not GraphStates.src_layer_exists(self.graph_state, api_response['files']['dem']) else []) + ([
@@ -258,8 +258,8 @@ class DigitalTwinTool(BaseAgentTool):
                             'type': 'raster',
                             'src': api_response['files']['landuse'],
                             'metadata': {
-                                'nodata': str(np.nan),
-                                'colormap_name': 'tab10_r',  # TODO: use a class ColorMaps
+                                'surface_type': 'land-use',
+                                ** utils.raster_specs(api_response['files']['landuse']),
                             }
                         }
                     ] if not GraphStates.src_layer_exists(self.graph_state, api_response['files']['landuse']) else []) + ([
@@ -269,8 +269,8 @@ class DigitalTwinTool(BaseAgentTool):
                             'type': 'raster',
                             'src': api_response['files']['dem_building'],
                             'metadata': {
-                                'nodata': -9999,
-                                'colormap_name': 'viridis',  # TODO: use a class ColorMaps
+                                'surface_type': 'dem-building',
+                                ** utils.raster_specs(api_response['files']['dem_building']),
                             }
                         }
                     ] if not GraphStates.src_layer_exists(self.graph_state, api_response['files']['dem_building']) else []) + ([
@@ -280,8 +280,9 @@ class DigitalTwinTool(BaseAgentTool):
                             'type': 'raster',
                             'src': api_response['files']['seamask'],
                             'metadata': {
+                                'surface_type': 'sea-mask',
                                 'nodata': str(np.nan),
-                                'colormap_name': 'tab10',  # TODO: use a class ColorMaps
+                                ** utils.raster_specs(api_response['files']['seamask']),
                             }
                         }
                     ] if not GraphStates.src_layer_exists(self.graph_state, api_response['files']['seamask']) else [])

@@ -43,7 +43,7 @@ def src_layer_exists(graph_state: BaseGraphState, layer_src: str) -> bool:
 
 def new_layer_title(graph_state: BaseGraphState, base_title: str) -> str:
     layers = graph_state.get('layer_registry', [])
-    base_title_layers = [layer for layer in layers if layer.get('title', '').startswith(base_title)]
+    base_title_layers = [layer['title'] for layer in layers if layer.get('title', '').startswith(base_title)]
     # Find the highest index in existing titles
     indices = [int(lt.split()[-1]) for lt in base_title_layers]
     if len(indices) == 0:

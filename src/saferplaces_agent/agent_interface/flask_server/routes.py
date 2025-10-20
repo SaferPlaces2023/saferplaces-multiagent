@@ -160,10 +160,12 @@ def render_layer(thread_id):
     
     if layer_type == 'vector':
         layer_render_src = utils.vector_to_geojson4326(layer_src)
+        metadata = dict()
     elif layer_type == 'raster':
         layer_render_src = utils.tif_to_cog3857(layer_src)
+        metadata = utils.raster_specs(layer_render_src)
             
     else:
         return jsonify({"error": f"Layer type '{layer_type}' is not supported"}), 400
         
-    return jsonify({'src': utils.s3uri_to_https(layer_render_src)}), 200
+    return jsonify({'src': utils.s3uri_to_https(layer_render_src), 'metadata': metadata}), 200

@@ -236,8 +236,8 @@ class SaferRainTool(BaseAgentTool):
                             'src': api_response['water_depth_file'],
                             'type': 'raster',
                             'metadata': {
-                                'nodata': str(np.nan),
-                                'colormap_name': 'blues',  # TODO: use a class ColorMaps
+                                'surface_type': 'water-depth',
+                                ** utils.raster_specs(api_response['water_depth_file']),
                             }
                         }
                     ]
