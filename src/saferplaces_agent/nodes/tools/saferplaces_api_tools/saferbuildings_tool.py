@@ -357,7 +357,7 @@ class SaferBuildingsTool(BaseAgentTool):
                     # TODO: add only safer-rain related layer if not present (or maybe add with modified description telling they were used for this simulation)
                     'layer_registry': self.graph_state.get('layer_registry', []) + [
                         {
-                            'title': f"SaferBuildings Output",
+                            'title': GraphStates.new_layer_title(self.graph_state, "SaferBuildings Output"),
                             'description': f"SaferBuildings output file with flooded buildings from this inputs: ({', '.join([f'{k}: {v}' for k,v in kwargs.items() if k!='out'])})",
                             'src': api_response['message']['body']['result']['s3_uri'],
                             'type': 'vector',
