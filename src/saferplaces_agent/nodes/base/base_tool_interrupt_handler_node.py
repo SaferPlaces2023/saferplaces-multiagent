@@ -170,7 +170,11 @@ class BaseToolInterruptInvalidArgsHandler(BaseToolInterruptHandler):
 class BaseToolInterruptArgsConfirmationHandler(BaseToolInterruptHandler):
     
     def _generate_interrupt_message(self):
-        args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])    
+        # args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])  # DOC: OLD manner, but args are the one in function call, not all the tool args_schema
+        
+        # args_value = f"{self.tool_message.tool_calls[-1]['args']}"
+        args_value = self.tool.args_valued #{argk: argv for argk,argv in self.tool.args_value.model_dump().items() if argv != self.tool.args_schema.model_fields[argk].default}
+
         interrupt_message = utils.ask_llm(
             role = 'system',
             message = f"""The tool execution can't be completed for this reason:
@@ -183,7 +187,10 @@ class BaseToolInterruptArgsConfirmationHandler(BaseToolInterruptHandler):
     
     def _generate_provided_args(self, response):
         # args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])  # DOC: OLD manner, but args are the one in function call, not all the tool args_schema
-        args_value = f"{self.tool_message.tool_calls[-1]['args']}"
+        
+        # args_value = f"{self.tool_message.tool_calls[-1]['args']}"
+        args_value = self.tool.args_valued #{argk: argv for argk,argv in self.tool.args_value.model_dump().items() if argv != self.tool.args_schema.model_fields[argk].default}
+        
         provided_args = utils.ask_llm(
             role = 'system',
             message = f"""The tool execution could not be completed for this reason:
@@ -200,9 +207,12 @@ class BaseToolInterruptArgsConfirmationHandler(BaseToolInterruptHandler):
         )  
         return provided_args
     
-    def _classify_output_confirmation(self, response):
+    def _classify_args_confirmation(self, response):
         # args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])  # DOC: OLD manner, but args are the one in function call, not all the tool args_schema
-        args_value = f"{self.tool_message.tool_calls[-1]['args']}"
+        
+        # args_value = f"{self.tool_message.tool_calls[-1]['args']}"
+        args_value = self.tool.args_valued #{argk: argv for argk,argv in self.tool.args_value.model_dump().items() if argv != self.tool.args_schema.model_fields[argk].default}
+        
         # output_description = '\n'.join([ f'- {out_name}: {out_value}' for out_name,out_value in self.tool_interrupt["data"]["output"].items() ])
         provided_output = utils.ask_llm(
             role = 'system',
@@ -259,7 +269,7 @@ class BaseToolInterruptArgsConfirmationHandler(BaseToolInterruptHandler):
         #         }
         #     }
         # DOC: NEW WAY
-        provided_args = self._classify_output_confirmation(response)
+        provided_args = self._classify_args_confirmation(response)
         if provided_args is True:
             self.tool.execution_confirmed = True
             return {
@@ -268,11 +278,16 @@ class BaseToolInterruptArgsConfirmationHandler(BaseToolInterruptHandler):
             }
         elif provided_args is False:
             remove_tool_message = RemoveMessage(self.tool_message.id)
-            system_message = SystemMessage(content=f"User choose to update it's original request with this additional informations: {response}")
+            system_message = SystemMessage(
+                content=f"""The tool {self.tool.name} was called with this input arguments:
+                {self.tool_message.tool_calls[-1]["args"]}
+                User choose to update it's original request with this additional informations: {response}.
+                Update the argument set by combining the existing arguments with the updates provided by the user. Do not add or remove any other information."""
+            )
             return {
                 'goto': END,
                 'update': { 
-                    # "messages": [remove_tool_message, system_message],
+                    "messages": [remove_tool_message, system_message],
                     "node_params": { N.CHATBOT_UPDATE_MESSAGES: { "update_messages": [remove_tool_message, system_message] } },
                 }
             }
@@ -303,7 +318,10 @@ class BaseToolInterruptOutputConfirmationHandler(BaseToolInterruptHandler):
         return interrupt_message
     
     def _classify_output_confirmation(self, response):
-        args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])
+        # args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])
+        # args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool.args_value.items() ])
+        args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool.args_valued.items()])
+
         output_description = '\n'.join([ f'- {out_name}: {out_value}' for out_name,out_value in self.tool_interrupt["data"]["output"].items() ])
         provided_output = utils.ask_llm(
             role = 'system',
@@ -329,7 +347,10 @@ class BaseToolInterruptOutputConfirmationHandler(BaseToolInterruptHandler):
         return provided_output
     
     def _generate_provided_output(self, response):
-        args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])
+        # args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool_interrupt["data"]["args"].items() ])
+        # args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool.args_value.items() ])
+        args_value = '\n'.join([ f'- {arg}: {val}' for arg,val in self.tool.args_valued.items() ])
+
         update_inputs = utils.ask_llm(
             role = 'system',
             message = f"""Tool was called with this input arguments:
@@ -375,13 +396,13 @@ class BaseToolInterruptOutputConfirmationHandler(BaseToolInterruptHandler):
             #     'update': { "messages": [self.tool_message] } 
             # }
             # DOC: [NEW WAY] — we need to return to the chatbot with the original request + updates
-            update_inputs = self._generate_provided_output(response) # ???: maybe non serve nemmeno
+            # update_inputs = self._generate_provided_output(response) # ???: maybe non serve nemmeno
             remove_tool_message = RemoveMessage(self.tool_message.id)
             system_message = SystemMessage(content=f"User choose to update it's original request with this additional informations: {response}")
             return {
                 'goto': END,
                 'update': { 
-                    # "messages": [remove_tool_message, system_message],
+                    "messages": [remove_tool_message, system_message],
                     "node_params": { N.CHATBOT_UPDATE_MESSAGES: { "update_messages": [remove_tool_message, system_message] } },
                 }
             }

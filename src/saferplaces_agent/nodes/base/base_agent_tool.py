@@ -18,6 +18,7 @@ class BaseAgentTool(BaseTool):
     name: str = None
     description: str = None
     args_schema: Optional[ArgsSchema] = None
+    args_value: Annotated[ArgsSchema, InjectedState] = None
     return_direct: bool = True
     
     # DOC: Additional args
@@ -32,7 +33,14 @@ class BaseAgentTool(BaseTool):
         self.name = name
         self.description = description
         self.args_schema = args_schema
+        self.args_value = None
         
+
+    @property
+    def args_valued(self):
+        if self.args_value is None:
+            return dict()
+        return { argk: argv for argk,argv in self.args_value.model_dump().items() if argv != self.args_schema.model_fields[argk].default }
     
     def tool_decription(self):
         def args_description(args_schema):
@@ -144,6 +152,7 @@ class BaseAgentTool(BaseTool):
     def _on_tool_end(self):
         self.execution_confirmed = False
         self.output_confirmed = False
+        self.args_value = None
                 
     
     # DOC: Run tool with the given arguments, this function should be overridden by the user that will call super() to do args validation and confirmation
@@ -155,13 +164,14 @@ class BaseAgentTool(BaseTool):
         """Run the tool with the given arguments."""
         
         def controls_before_execution(tool_args):
-            self.check_required_args(tool_args)         # 1. Required arguments
-            self.check_validation_rules(tool_args)      # 2. Invalid arguments
-            self.infer_args(tool_args)                  # 3. Infer arguments)
-            self.confirm_args(tool_args)                # 4. Confirm arguments
+            self.check_required_args(tool_args)                             # 1. Required arguments
+            self.check_validation_rules(tool_args)                          # 2. Invalid arguments
+            self.infer_args(tool_args)                                      # 3. Infer arguments)
+            self.args_value = self.args_schema.model_validate(tool_args)    # 4. Validate (and update) arguments object
+            self.confirm_args(tool_args)                                    # 5. Confirm arguments
             
         controls_before_execution(tool_args)
-        
+
         self.output = self._execute(**tool_args)
         
         def controls_after_execution(tool_args):
