@@ -44,7 +44,7 @@ def user():
         return jsonify({"error": "User ID is required"}), 400
     
     user_bucket_files = s3_utils.list_s3_files(f's3://{os.getenv("BUCKET_NAME", "saferplaces.co")}/{os.getenv("BUCKET_OUT_DIR", "SaferPlaces-Agent/dev")}/user={user_id}')
-    user_project = sorted(list(set([re.search(r'project=(dev-\d+)', p).group(1) for p in user_bucket_files if 'project=' in p])))
+    user_project = sorted(list(set([re.search(r'project=([\w-]+)', p).group(1) for p in user_bucket_files if 'project=' in p])))
     
     return jsonify({
         "user_id": user_id,
