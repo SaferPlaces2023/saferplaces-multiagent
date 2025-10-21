@@ -76,16 +76,16 @@ class GeospatialOpsInputSchema(BaseModel):
         description="Optional CRS to enforce on outputs (e.g., 'EPSG:4326').",
     )
 
-    @validator("output_file")
-    def _validate_filename(cls, v):
-        if v is None:
-            return v
-        if not _FILENAME_RE.fullmatch(v):
-            raise ValueError(
-                "output_file must be filename only, lowercase, [a-z0-9_-], "
-                "with extension .geojson|.gpkg|.shp|.tif|.tiff"
-            )
-        return v
+    # @validator("output_file")
+    # def _validate_filename(cls, v):
+    #     if v is None:
+    #         return v
+    #     if not _FILENAME_RE.fullmatch(v):
+    #         raise ValueError(
+    #             "output_file must be filename only, lowercase, [a-z0-9_-], "
+    #             "with extension .geojson|.gpkg|.shp|.tif|.tiff"
+    #         )
+    #     return v
 
     # class Config:
     #     # Impedisci campi sconosciuti; abilita uso dei nomi/alias indifferentemente
@@ -129,8 +129,17 @@ class GeospatialOpsTool(BaseAgentTool):
     # DOC: Inference rules ( i.e.: from location name to bbox ... )
 
     def _set_args_inference_rules(self) -> dict:
+        
+        def infer_output_file(**kwargs):
+            if kwargs.get('output_file') is not None:
+                filename = utils.justfname(kwargs['output_file'])
+                output_file = f"{s3_utils._BASE_BUCKET}/{filename}"
+                return output_file
+            return None
+        
         infer_rules = {
-            'output_file': lambda **kwargs: f"{s3_utils._BASE_BUCKET}/{kwargs['output_file']}" if kwargs.get('output_file', None) is not None else None,
+            # 'output_file': lambda **kwargs: f"{s3_utils._BASE_BUCKET}/{kwargs['output_file']}" if kwargs.get('output_file', None) is not None else None,
+            'output_file': infer_output_file,
         }
         return infer_rules
 
