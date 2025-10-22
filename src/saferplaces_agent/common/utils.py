@@ -17,6 +17,7 @@ import urllib.parse
 import numpy as np
 
 import pyogrio
+from shapely.geometry import box
 import geopandas as gpd
 
 import rasterio
@@ -240,14 +241,39 @@ def vector_to_geojson4326(src: str, dst: str = None, debug: bool = False) -> str
     
 
 def raster_specs(src: str) -> dict:
-    da = rioxarray.open_rasterio(src, masked=True)
-    min_val = float(da.min().compute())
-    max_val = float(da.max().compute())
-    nodata_val = da.rio.nodata.item() if da.rio.nodata is not None else np.nan
+    # da = rioxarray.open_rasterio(src) # !!!: masked=True impedisce a volte la lettura corretta di nodata
+    # min_val = float(da.min().compute())
+    # max_val = float(da.max().compute())
+    # nodata_val = da.rio.nodata.item() if da.rio.nodata is not None else np.nan
+    # return {
+    #     'min': min_val,
+    #     'max': max_val,
+    #     'nodata': nodata_val if not np.isnan(nodata_val) else str(np.nan),
+    #     'n_bands': da.band.size if 'band' in da.dims else da.values.shape[0],
+    #     'crs': da.rio.crs.to_string() if da.rio.crs else None,
+    #     'bounding-box-wgs84': gpd.GeoDataFrame(geometry=[box(*da.rio.bounds())], crs=da.rio.crs).to_crs(epsg=4326).total_bounds.tolist()
+    # }
+    da = rioxarray.open_rasterio(src)
+    nodata_val = da.rio.nodata
+    if nodata_val is None:
+        da_valid = da
+    elif isinstance(nodata_val, float) and np.isnan(nodata_val):
+        da_valid = da.where(~np.isnan(da))
+    else:
+        da_valid = da.where(da != nodata_val)
+    nodata_val = nodata_val.item() if nodata_val is not None and not np.isnan(nodata_val) else str(np.nan)
+    min_val = float(da_valid.min(skipna=True).compute())
+    max_val = float(da_valid.max(skipna=True).compute())
+    n_bands = da.sizes.get('band', 1)
+    crs_str = da.rio.crs.to_string() if da.rio.crs else None
+    bounds_proj = gpd.GeoDataFrame(geometry=[box(*da.rio.bounds())], crs=da.rio.crs).to_crs(epsg=4326).total_bounds.tolist()
     return {
         'min': min_val,
         'max': max_val,
-        'nodata': nodata_val if not np.isnan(nodata_val) else str(np.nan),
+        'nodata': nodata_val,
+        'n_bands': n_bands,
+        'crs': crs_str,
+        'bounding-box-wgs84': bounds_proj,
     }
 
 def is_cog(src: str) -> bool:

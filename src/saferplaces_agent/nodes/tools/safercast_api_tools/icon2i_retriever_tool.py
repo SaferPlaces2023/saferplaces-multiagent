@@ -342,11 +342,14 @@ class ICON2IRetrieverTool(BaseAgentTool):
                 'updates': {
                     'layer_registry': self.graph_state.get('layer_registry', []) + [
                         {
-                            'title': f"ICON2I_{payload['inputs']['variable']}",
-                            'description': f"ICON2I {payload['inputs']['variable']} data for bbox {kwargs['bbox']} from {payload['inputs']['time_range'][0]} to {payload['inputs']['time_range'][1]}",
+                            'title': GraphStates.new_layer_title(self.graph_state, f"ICON2I_{payload['inputs']['variable']}"),
+                            'description': f"ICON2I {payload['inputs']['variable']} data for bbox {[kwargs['long_range'][0], kwargs['lat_range'][0], kwargs['long_range'][1], kwargs['lat_range'][1]]} from {payload['inputs']['time_range'][0]} to {payload['inputs']['time_range'][1]}",
                             'src': api_response['uri'],
                             'type': 'raster',
-                            'metadata': dict()  # TODO: To be well defined (maybe class)
+                            'metadata': {
+                                'surface_type': 'rain-timeseries',
+                                ** utils.raster_specs(api_response['uri']),
+                            }
                         }
                     ]
                     if not GraphStates.src_layer_exists(self.graph_state, api_response['uri'])
