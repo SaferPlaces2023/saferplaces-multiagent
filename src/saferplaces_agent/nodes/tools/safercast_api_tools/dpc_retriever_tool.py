@@ -409,7 +409,7 @@ class DPCRetrieverTool(BaseAgentTool):
                             'type': 'raster',
                             'metadata': {
                                 'surface_type': 'rain-timeseries',
-                                ** utils.raster_specs(api_response['uri']),
+                                ** utils.raster_ts_specs(api_response['uri']),
                             }
                         }
                     ]

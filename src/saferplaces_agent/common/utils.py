@@ -276,6 +276,24 @@ def raster_specs(src: str) -> dict:
         'bounding-box-wgs84': bounds_proj,
     }
 
+def raster_ts_specs(src: str, timestamps_attr: str = 'band_names') -> dict:
+    """Get the specifications of a raster time series."""
+    base_specs = raster_specs(src)
+    da = rioxarray.open_rasterio(src)
+    try:
+        timestamps = da.attrs[timestamps_attr]
+        timestamps = ast.literal_eval(timestamps)
+        tstart = datetime.datetime.fromisoformat(timestamps[0]).replace(tzinfo=None)
+        tend = datetime.datetime.fromisoformat(timestamps[-1]).replace(tzinfo=None)
+        return {
+            **base_specs,
+            'time_start': tstart.isoformat(),
+            'time_end': tend.isoformat()
+        }
+    except Exception:
+        return base_specs 
+
+
 def is_cog(src: str) -> bool:
     p = src if src.startswith(("/vsicurl/", "/vsis3/", "s3://")) else ("/vsicurl/"+src if src.startswith(("http://","https://")) else src)
     try:
