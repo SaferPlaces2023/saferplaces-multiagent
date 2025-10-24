@@ -170,7 +170,15 @@ class DigitalTwinTool(BaseAgentTool):
     
     # DOC: Inference rules ( i.e.: from location name to bbox ... )
     def _set_args_inference_rules(self) -> dict:
-        infer_rules = dict()
+        
+        def infer_pixelsize(**kwargs):
+            pixelsize = kwargs.get('pixelsize') or 0
+            pixelsize = max(2, pixelsize)
+            return pixelsize
+        
+        infer_rules = {
+            'pixelsize': infer_pixelsize
+        }
         return infer_rules
         
     
@@ -214,6 +222,10 @@ class DigitalTwinTool(BaseAgentTool):
                 **debug_args,           # DOC: Debug args for the API call
             }
         }
+
+        print('\n\n-------------------------------------------- \n')
+        print(payload)
+        print('\n\n-------------------------------------------- \n')
         
         # DOC: Call the Digital-Twin API ...
         api_response = requests.post(api_url, json=payload)
