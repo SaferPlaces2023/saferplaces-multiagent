@@ -273,7 +273,12 @@ def raster_specs(src: str) -> dict:
         'nodata': nodata_val,
         'n_bands': n_bands,
         'crs': crs_str,
-        'bounding-box-wgs84': bounds_proj,
+        'bounding-box-wgs84': {
+            'minx': bounds_proj[0],
+            'miny': bounds_proj[1],
+            'maxx': bounds_proj[2],
+            'maxy': bounds_proj[3]
+        },
     }
 
 def raster_ts_specs(src: str, timestamps_attr: str = 'band_names') -> dict:
