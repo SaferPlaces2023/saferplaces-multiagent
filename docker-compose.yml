@@ -1,0 +1,39 @@
+services:
+  
+  web:
+    
+    build: .
+    
+    image: saferplaces-agent:latest
+    
+    ports:
+        - "5000:5000"
+    
+    env_file:
+        - .env
+    
+    environment:
+        # Flask configuration
+        FLASK_ENV: production
+        LOG_LEVEL: info
+        GUNICORN_WORKERS: "4"
+        GUNICORN_THREADS: "2"
+        GUNICORN_TIMEOUT: "600"
+        
+        # LangGraph configuration
+        LANGSMITH_PROJECT:
+        LANGSMITH_API_KEY:
+        OPENAI_API_KEY:
+
+        # Saferplaces API Endpoint configuration
+        DOMAIN_ROOT:
+        SAFERPLACES_API_ROOT:
+        SAFERPLACES_API_USER:
+        SAFERPLACES_API_TOKEN:
+
+        # Safercast API Endpoint configuration
+        SAFERCAST_API_ROOT:
+        SAFERCAST_API_USER:
+        SAFERCAST_API_TOKEN:
+      
+    restart: unless-stopped

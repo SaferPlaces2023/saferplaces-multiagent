@@ -178,3 +178,6 @@ tests/
 
 # bat files
 *.bat
+
+# docker files
+docker-compose.local.yml

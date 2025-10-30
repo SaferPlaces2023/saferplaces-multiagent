@@ -3,7 +3,6 @@ from flask_cors import CORS
 
 from .. import __GRAPH_REGISTRY__ 
 
-
 def create_app():
     app = Flask(__name__)
 
