@@ -391,6 +391,9 @@ def tif_to_cog3857(src: str, dst: str = None, debug: bool = False, **kwargs) -> 
             OVERVIEWS=kwargs.get("OVERVIEWS", "IGNORE_EXISTING"),
             RESAMPLING=kwargs.get("RESAMPLING", "AVERAGE")     # stringa, non enum
         )
+        # new_nodata = 0  # cambia qui
+        # with rasterio.open(dst, "r+") as ds:
+        #     ds.nodata = 0   # aggiorna il NoData (per-band sotto al cofano)
 
     if do_reproject:
         dst_crs = "EPSG:3857"

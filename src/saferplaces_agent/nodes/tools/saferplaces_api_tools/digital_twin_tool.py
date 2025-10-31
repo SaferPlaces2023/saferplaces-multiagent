@@ -31,7 +31,7 @@ class DigitalTwinInputSchema(BaseModel):
     """
 
     # ----------------------------- Data sources ------------------------------
-    dataset_dem: Optional[str] = Field(
+    dem_dataset: Optional[str] = Field(
         default=None,
         title="DEM/DTM dataset",
         description=(
@@ -62,19 +62,19 @@ class DigitalTwinInputSchema(BaseModel):
             "3) if no national source fits, use **COPERNICUS/EUDEM** (Europe) or global fallback."
         ),
         examples=["COPERNICUS/EUDEM", "USGS/3DEP/1M", None],
-        validation_alias=AliasChoices("dataset_dem", "dem", "dtm", "dem_dataset", "dtm_dataset"),
+        validation_alias=AliasChoices("dem_dataset", "dem", "dtm", "dem_dataset", "dtm_dataset"),
     )
 
-    dataset_building: str = Field(
+    building_dataset: str = Field(
         default="OSM/BUILDINGS",
         title="Buildings dataset",
         description="Provider/dataset to fetch building footprints. Default: 'OSM/BUILDINGS'.",
         examples=["OSM/BUILDINGS"],
-        validation_alias=AliasChoices("dataset_building", "building_dataset", "buildings_provider"),
+        validation_alias=AliasChoices("building_dataset", "building_dataset", "buildings_provider"),
     )
     
     
-    dataset_land_use: str = Field(
+    landuse_dataset: str = Field(
         default="ESA/WorldCover/v100",
         title="Land-use dataset",
         description="Dataset for land-use/land-cover. Default: 'ESA/WorldCover/v100'.",
@@ -121,7 +121,7 @@ class DigitalTwinTool(BaseAgentTool):
 
                 "### What it creates\n"
                 "- **DEM/DTM raster**, resampled to the requested pixel size (`pixelsize`).\n"
-                "- **Building footprints** for the AOI from the selected provider (`dataset_building`, default: 'OSM/BUILDINGS').\n"
+                "- **Building footprints** for the AOI from the selected provider (`building_dataset`, default: 'OSM/BUILDINGS').\n"
                 "- **Land-use/land-cover** layer for the AOI (`dataset_land_use`, default: 'ESA/WorldCover/v100').\n"
                 "- **Sea mask** that separates land and water areas within the AOI.\n"
                 "- All outputs are spatially aligned and clipped to the AOI.\n\n"
@@ -134,8 +134,8 @@ class DigitalTwinTool(BaseAgentTool):
                 "- Produce a set of harmonized layers ready for mapping, simulation, or other geospatial analyses.\n\n"
 
                 "### Inputs\n"
-                "- `dataset_dem (optional): Identifier of the DEM/DTM dataset **or `None`**. If `None`, the tool **auto-selects** the best dataset. \n"
-                "- `dataset_building` (optional, default 'OSM/BUILDINGS'): Provider for building footprints.\n"
+                "- `dem_dataset (optional): Identifier of the DEM/DTM dataset **or `None`**. If `None`, the tool **auto-selects** the best dataset. \n"
+                "- `building_dataset` (optional, default 'OSM/BUILDINGS'): Provider for building footprints.\n"
                 "- `dataset_land_use` (optional, default 'ESA/WorldCover/v100'): Dataset for land-use/land-cover information.\n"
                 "- `bbox` (required): AOI as EPSG:4326 bounding box. Use named keys `west,south,east,north`. If user provides a location name, you have to infer the bounding box.\n"
                 "- `pixelsize` (optional): Desired DEM resolution in meters (> 0). Prefer None if user does not specify it, so the tool uses the native resolution of the DEM dataset.\n\n"
@@ -148,8 +148,8 @@ class DigitalTwinTool(BaseAgentTool):
 
                 "### Behavior and defaults\n"
                 "- The bounding box must be in EPSG:4326 coordinates.\n"
-                "- If `dataset_dem` is **not provided** (None), the tool maps the AOI to country/region and selects a suitable DEM.\n"
-                "- If `dataset_building` or `dataset_land_use` are not provided, the defaults are used.\n"
+                "- If `dem_dataset` is **not provided** (None), the tool maps the AOI to country/region and selects a suitable DEM.\n"
+                "- If `building_dataset` or `dataset_land_use` are not provided, the defaults are used.\n"
                 "- Output is a set of raster and vector layers aligned on the same grid, ready for downstream tools and analyses.\n\n"
 
                 "### Output\n"

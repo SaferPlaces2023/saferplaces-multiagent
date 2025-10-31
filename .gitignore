@@ -181,3 +181,4 @@ tests/
 
 # docker files
 docker-compose.local.yml
+Dockerfile.local
