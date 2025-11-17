@@ -2,7 +2,7 @@
 import multiprocessing
 import os
 
-bind = os.getenv("GUNICORN_BIND", "0.0.0.0:80")
+bind = os.getenv("GUNICORN_BIND", "0.0.0.0:5000")
 
 # 2*CPU + 1 per default, ma consentiamo override via ENV
 workers = int(os.getenv("GUNICORN_WORKERS", (multiprocessing.cpu_count() * 2) + 1))
