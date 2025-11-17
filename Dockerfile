@@ -20,6 +20,7 @@ ENV PATH="/venv/bin:$PATH"
 COPY . /app
 RUN /venv/bin/pip install --upgrade pip && \
     /venv/bin/pip install gunicorn && \
+    /venv/bin/pip install "titiler[full]" --prefer-binary && \
     /venv/bin/pip install '.[dev,leafmap]'
 
 ENV PYTHONPATH="/app"
