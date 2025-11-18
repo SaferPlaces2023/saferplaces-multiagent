@@ -34,11 +34,9 @@ dev = [
 ]
 leafmap = [
     "leafmap",
-    "localtileserver",
     "fiona",
-    "jupyter-server-proxy",
-    "titiler[full]",
-    "titiler.application",
+    "Flask",
+    "flask-cors",
     "uvicorn"
 ]
 
