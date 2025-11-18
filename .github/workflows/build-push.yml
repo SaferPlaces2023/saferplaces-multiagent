@@ -1,0 +1,52 @@
+name: Docker Build and Push to ECR
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build-application:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+    
+    - name: Extract Git Tag
+      id: extract-tag
+      run: echo "tag=${GITHUB_REF##*/}" >> $GITHUB_ENV
+
+    - name: Build and Push Docker Image
+      env:
+        ECR_REPO: ${{ secrets.ECR_REPO }}
+        TAG: ${{ env.tag }}
+      run: |
+        echo "Building and pushing Docker image with tag: $TAG"
+        docker build -t $ECR_REPO:${GITHUB_SHA::8} .
+        docker tag $ECR_REPO:${GITHUB_SHA::8} $ECR_REPO:$TAG
+        docker tag $ECR_REPO:${GITHUB_SHA::8} $ECR_REPO:latest
+        docker push $ECR_REPO:${GITHUB_SHA::8}
+        docker push $ECR_REPO:$TAG
+        docker push $ECR_REPO:latest
+    
+    # - name: Run ECS Task
+    #   env:
+    #     AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    #     AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    #     AWS_DEFAULT_REGION: ${{ secrets.AWS_REGION }}
+    #     CLUSTER_NAME: saferplaces-api-cluster
+    #     SERVICE_NAME: pygeoapi-saferplaces-nginx-td-service
+    #   run: |
+    #     aws ecs update-service --cluster $CLUSTER_NAME --service $SERVICE_NAME --force-new-deployment
+      
+
