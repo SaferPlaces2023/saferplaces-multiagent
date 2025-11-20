@@ -41,7 +41,7 @@ class DigitalTwinInputSchema(BaseModel):
             "Region-aware hints (preferred sources by AOI):\n"
             "- **Italy** → GECOSISTEMA/ITALY\n"
             "- **Netherlands** → AHN/NETHERLANDS/05M | AHN/NETHERLANDS/5M\n"
-            "- **Belgium** → NGI/BELGIUM/5M;  Flanders → VLAANDEREN/FLANDERS/BE/1M;  Wallonia → GEOPORTAIL/WALLONIE/BE/1M\n"
+            "- **Belgium** → GECOSISTEMA/BELGIUM/1M;  Flanders → VLAANDEREN/FLANDERS/BE/1M;  Wallonia → GEOPORTAIL/WALLONIE/BE/1M\n"
             "- **France** → IGN/RGE_ALTI/1M\n"
             "- **Spain** → IGN/ES/2M\n"
             "- **UK** → UK/LIDAR\n"
