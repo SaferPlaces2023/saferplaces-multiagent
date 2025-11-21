@@ -170,6 +170,7 @@ class SaferRainTool(BaseAgentTool):
             Infer the S3 bucket destination based on user ID and project ID.
             """
             water = kwargs.get('water') or f"water-depth-{utils.b64uuid()}.tif"
+            # FIXME: return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferrain-out/{water}"
             return f"{s3_utils._BASE_BUCKET}/saferrain-out/{water}"
         
         def infer_mode(**kwargs):

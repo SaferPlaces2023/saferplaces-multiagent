@@ -274,6 +274,7 @@ class ICON2IRetrieverTool(BaseAgentTool):
             """
             Infer the S3 bucket destination based on user ID and project ID.
             """
+            # FIXME: return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/icon2i-out"
             return f"{s3_utils._BASE_BUCKET}/icon2i-out"
                   
         infer_rules = {

@@ -7,7 +7,7 @@ import geopandas as gpd
 
 from markupsafe import escape
 
-from flask import Response, request, jsonify, current_app as app
+from flask import Response, request, jsonify, current_app as app, render_template
 
 from .. import GraphInterface
 from ... import utils, s3_utils
@@ -32,7 +32,9 @@ from ... import utils, s3_utils
 
 @app.route('/')
 def index():
-    return jsonify("Welcome to the SaferPlaces Agent Interface!"), 200
+    # return jsonify("Welcome to the SaferPlaces Agent Interface!"), 200
+    print("Rendering index.html")
+    return render_template('index.html')
 
 
 @app.route('/user', methods=['POST'])
