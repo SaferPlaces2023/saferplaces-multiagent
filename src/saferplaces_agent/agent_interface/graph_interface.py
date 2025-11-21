@@ -149,8 +149,8 @@ class GraphInterface:
     def restore_state(self):
         
         def restore_layer_registry():
-            # FIXME: lr_uri = f'{s3_utils._STATE_BUCKET_(self.graph_state)}/layer_registry.json'
-            lr_uri = f'{s3_utils._BASE_BUCKET}/layer_registry.json'
+            lr_uri = f"{s3_utils._STATE_BUCKET_(dict(user_id=self.user_id, project_id=self.project_id))}/layer_registry.json"
+            # FIXME: lr_uri = f'{s3_utils._BASE_BUCKET}/layer_registry.json'
             print(f"Restoring layer registry from {lr_uri} ...")
             lr_fp = s3_utils.s3_download(uri=lr_uri, fileout=os.path.join(os.getcwd(), f'{self.user_id}__{self.project_id}__layer_registry.json'))   # TODO: TMP DIR! + garbage collect
             if lr_fp is not None and os.path.exists(lr_fp):
@@ -236,8 +236,8 @@ class GraphInterface:
         def update_layer_registry(event_value):
             if type(event_value) is dict and event_value.get('layer_registry'):
                 layer_registry = self.get_state('layer_registry')
-                # FIXME: lr_uri = f'{s3_utils._STATE_BUCKET_(self.graph_state)}/layer_registry.json'
-                lr_uri = f'{s3_utils._BASE_BUCKET}/layer_registry.json'
+                lr_uri = f'{s3_utils._STATE_BUCKET_(dict(user_id=self.user_id, project_id=self.project_id))}/layer_registry.json'
+                # FIXME: lr_uri = f'{s3_utils._BASE_BUCKET}/layer_registry.json'
                 lr_fp = os.path.join(os.getcwd(), f'{self.user_id}__{self.project_id}__layer_registry.json')
                 with open(lr_fp, 'w') as f:
                     json.dump(layer_registry, f, indent=4)

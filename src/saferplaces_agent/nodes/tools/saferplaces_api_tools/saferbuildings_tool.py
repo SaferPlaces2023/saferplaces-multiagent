@@ -301,8 +301,8 @@ class SaferBuildingsTool(BaseAgentTool):
             Infer the S3 bucket destination based on user ID and project ID.
             """
             out = kwargs.get('out') or f"flooded-buildings-{utils.b64uuid()}.geojson"
-            # FIXME: return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferbuildings-out/{out}"
-            return f"{s3_utils._BASE_BUCKET}/saferbuildings-out/{out}"
+            return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferbuildings-out/{out}"
+            # FIXME: return f"{s3_utils._BASE_BUCKET}/saferbuildings-out/{out}"
             
         infer_rules = {
             'out': infer_out

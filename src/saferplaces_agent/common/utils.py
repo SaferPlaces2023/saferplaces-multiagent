@@ -211,8 +211,8 @@ def vector_to_geojson4326(src: str, dst: str = None, debug: bool = False) -> str
             ext = justext(src)
             dst = src.replace(f'.{ext}', '.4326.geojson')
         else:
-            # FIXME: dst = f"{s3_utils._BASE_BUCKET_}/4326/{juststem(src)}.4326.geojson"
-            dst = f"{s3_utils._BASE_BUCKET}/4326/{juststem(src)}.4326.geojson"
+            dst = f"{s3_utils._BASE_BUCKET_}/4326/{juststem(src)}.4326.geojson"
+            # FIXME: dst = f"{s3_utils._BASE_BUCKET}/4326/{juststem(src)}.4326.geojson"
             
     # DOC: if src is already a 4326 geojson, return it
     if justext(src) == 'geojson' and fast_is_vector_4326(src):
@@ -366,8 +366,8 @@ def tif_to_cog3857(src: str, dst: str = None, debug: bool = False, **kwargs) -> 
         if src.startswith('https://s3'):
             dst = src.replace('.tif', '-cog3857.tif')
         else:
-            # FIXME: dst = f"{s3_utils._BASE_BUCKET_}/cog/{juststem(src)}-cog3857.tif"
-            dst = f"{s3_utils._BASE_BUCKET}/cog/{juststem(src)}-cog3857.tif"
+            dst = f"{s3_utils._BASE_BUCKET_}/cog/{juststem(src)}-cog3857.tif"
+            # FIXME: dst = f"{s3_utils._BASE_BUCKET}/cog/{juststem(src)}-cog3857.tif"
 
     # DOC: if dst is a s3 uri, use a temporary local file     
     if dst.startswith('s3://') or dst.startswith('https://s3'):

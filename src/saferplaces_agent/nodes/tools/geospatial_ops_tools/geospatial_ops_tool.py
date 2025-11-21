@@ -133,8 +133,8 @@ class GeospatialOpsTool(BaseAgentTool):
         def infer_output_file(**kwargs):
             if kwargs.get('output_file') is not None:
                 filename = utils.justfname(kwargs['output_file'])
-                # FIXME: output_file = f"{s3_utils._STATE_BUCKET_(self.graph_state)}/{filename}"
-                output_file = f"{s3_utils._BASE_BUCKET}/{filename}"
+                output_file = f"{s3_utils._STATE_BUCKET_(self.graph_state)}/{filename}"
+                # FIXME: output_file = f"{s3_utils._BASE_BUCKET}/{filename}"
                 return output_file
             return None
         

@@ -385,8 +385,8 @@ class ChatMarkdownHandler:
                 include_toc=True,
                 include_header=True
             )
-            # FIXEM: export_uri = f"{s3_utils._STATE_BUCKET_(self.graph_interface.graph_state)}/conversations/{self.graph_interface.thread_id}/{export_path}"
-            export_uri = f"{s3_utils._BASE_BUCKET}/conversations/{self.graph_interface.thread_id}/{export_path}"
+            export_uri = f"{s3_utils._STATE_BUCKET_(self.graph_interface.graph_state)}/conversations/{self.graph_interface.thread_id}/{export_path}"
+            # FIXME: export_uri = f"{s3_utils._BASE_BUCKET}/conversations/{self.graph_interface.thread_id}/{export_path}"
             s3_utils.s3_upload(filename=export_path, uri=export_uri, remove_src=True)
             export_url = html.escape(utils.s3uri_to_https(export_uri), quote=True)
             display(Markdown(f"Chat exported to: [{export_uri}]({export_url})"))

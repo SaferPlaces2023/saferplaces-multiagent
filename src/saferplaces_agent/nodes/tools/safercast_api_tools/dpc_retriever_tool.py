@@ -337,8 +337,8 @@ class DPCRetrieverTool(BaseAgentTool):
             """
             Infer the S3 bucket destination based on user ID and project ID.
             """
-            # FIXME: return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/dpc-out"
-            return f"{s3_utils._BASE_BUCKET}/dpc-out"
+            return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/dpc-out"
+            # FIXME: return f"{s3_utils._BASE_BUCKET}/dpc-out"
                   
         infer_rules = {
             'time_range': infer_time_range,

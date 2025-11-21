@@ -139,8 +139,8 @@ class ICON2IIngestorTool(BaseAgentTool):
                 "token": os.getenv("SAFERCAST_API_TOKEN"),
                 "user": os.getenv("SAFERCAST_API_USER"),
             } | {
-                # FIXME: "bucket_destination": f"{s3_utils._STATE_BUCKET_(self.graph_state)}/icon2i-out"
-                "bucket_destination": f"{s3_utils._BASE_BUCKET}/icon2i-out"
+                "bucket_destination": f"{s3_utils._STATE_BUCKET_(self.graph_state)}/icon2i-out"
+                # FIXME: "bucket_destination": f"{s3_utils._BASE_BUCKET}/icon2i-out"
             } | {
                 "debug": True,  # TEST: enable debug mode
             }

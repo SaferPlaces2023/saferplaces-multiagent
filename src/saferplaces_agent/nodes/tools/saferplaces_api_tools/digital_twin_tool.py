@@ -172,8 +172,9 @@ class DigitalTwinTool(BaseAgentTool):
     def _set_args_inference_rules(self) -> dict:
         
         def infer_pixelsize(**kwargs):
+            lower_limit = 5
             pixelsize = kwargs.get('pixelsize') or 0
-            pixelsize = max(2, pixelsize)
+            pixelsize = max(lower_limit, pixelsize)
             return pixelsize
         
         infer_rules = {
@@ -196,10 +197,10 @@ class DigitalTwinTool(BaseAgentTool):
         kwargs['bbox'] = kwargs['bbox'].to_list()
         
         additional_args = {
-            # FIXME: "workspace": s3_utils.get_bucket_name_key(s3_utils._STATE_BUCKET_(self.graph_state))[0],
-            "workspace": s3_utils.get_bucket_name_key(s3_utils._BASE_BUCKET)[0],
-            # FIXME: "user": s3_utils.get_bucket_name_key(s3_utils._STATE_BUCKET_(self.graph_state))[1],
-            "project": s3_utils.get_bucket_name_key(s3_utils._BASE_BUCKET)[1],
+            "workspace": s3_utils.get_bucket_name_key(s3_utils._STATE_BUCKET_(self.graph_state))[0],
+            # FIXME: "workspace": s3_utils.get_bucket_name_key(s3_utils._BASE_BUCKET)[0],
+            "project": s3_utils.get_bucket_name_key(s3_utils._STATE_BUCKET_(self.graph_state))[1],
+            # FIXME: "project": s3_utils.get_bucket_name_key(s3_utils._BASE_BUCKET)[1],
             "file_dem": f'dem-{exec_uuid}.tif',
             "file_building": f'building-{exec_uuid}.shp',
             "file_landuse": f'landuse-{exec_uuid}.tif',

@@ -13,7 +13,7 @@ from . import utils
 
 
 _BASE_BUCKET_ = f's3://{os.getenv("BUCKET_NAME", "saferplaces.co")}/{os.getenv("BUCKET_OUT_DIR", "SaferPlaces-Agent/dev")}'
-_STATE_BUCKET_ = lambda state: f"{_BASE_BUCKET_}/user={state['user_id']}/project={state['project_id']}'"
+_STATE_BUCKET_ = lambda state: f"{_BASE_BUCKET_}/user={state['user_id']}/project={state['project_id']}"
 
 _BASE_BUCKET = None
 def setup_base_bucket(user_id, project_id):
