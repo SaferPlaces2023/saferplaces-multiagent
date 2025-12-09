@@ -55,6 +55,14 @@ def b64uuid():
 def hash_string(s, hash_method=hashlib.md5):
     return hash_method(s.encode('utf-8')).hexdigest()
 
+def download_url(src: str):
+    if src.startswith('s3://'):
+        return s3uri_to_https(src)
+    elif src.startswith('https://') or src.startswith('http://'):
+        return src
+    else:
+        return None
+
 def s3uri_to_https(s3_uri):
     """
     Converte una URI S3 (s3://bucket/key) in un URL HTTP (https://bucket.s3.amazonaws.com/key)
@@ -174,11 +182,37 @@ def dedent(s: str, add_tab: int = 0, tab_first: bool = True) -> str:
 
 # REGION: [Geospatial utils]
 
+def common_specs(src: str):
+    specs = dict()
+    dl_url = download_url(src)
+    if dl_url:
+        specs['download_url'] = dl_url
+    return specs
+
 def get_geodataframe_crs(geo_df):
     epsg_code = geo_df.crs.to_epsg()
     if epsg_code is None:
         raise ValueError("GeoDataFrame does not have a defined CRS.")
     return f"EPSG:{epsg_code}"
+
+def vector_specs(src: str) -> dict:
+    """Get the specifications of a vector file."""
+    geo_df = gpd.read_file(src)
+    epsg_code = get_geodataframe_crs(geo_df)
+    bounds = gpd.GeoDataFrame(geometry=[box(*geo_df.total_bounds)], crs=geo_df.crs).to_crs(epsg=4326).total_bounds.tolist()
+    return {
+        'crs': epsg_code,
+        'bounding-box-wgs84': {
+            'minx': bounds[0],
+            'miny': bounds[1],
+            'maxx': bounds[2],
+            'maxy': bounds[3]
+        },
+        'n_features': len(geo_df),
+        'geometry_type': geo_df.geometry.type.unique().tolist(),
+        'attributes': {col: str(geo_df[col].dtype) for col in geo_df.columns},
+        ** common_specs(src)
+    }
 
 def is_vector_4326(geo_df):
     """Check if the GeoDataFrame is in EPSG:4326."""
@@ -212,7 +246,6 @@ def vector_to_geojson4326(src: str, dst: str = None, debug: bool = False) -> str
             dst = src.replace(f'.{ext}', '.4326.geojson')
         else:
             dst = f"{s3_utils._BASE_BUCKET_}/4326/{juststem(src)}.4326.geojson"
-            # FIXME: dst = f"{s3_utils._BASE_BUCKET}/4326/{juststem(src)}.4326.geojson"
             
     # DOC: if src is already a 4326 geojson, return it
     if justext(src) == 'geojson' and fast_is_vector_4326(src):
@@ -242,18 +275,6 @@ def vector_to_geojson4326(src: str, dst: str = None, debug: bool = False) -> str
     
 
 def raster_specs(src: str) -> dict:
-    # da = rioxarray.open_rasterio(src) # !!!: masked=True impedisce a volte la lettura corretta di nodata
-    # min_val = float(da.min().compute())
-    # max_val = float(da.max().compute())
-    # nodata_val = da.rio.nodata.item() if da.rio.nodata is not None else np.nan
-    # return {
-    #     'min': min_val,
-    #     'max': max_val,
-    #     'nodata': nodata_val if not np.isnan(nodata_val) else str(np.nan),
-    #     'n_bands': da.band.size if 'band' in da.dims else da.values.shape[0],
-    #     'crs': da.rio.crs.to_string() if da.rio.crs else None,
-    #     'bounding-box-wgs84': gpd.GeoDataFrame(geometry=[box(*da.rio.bounds())], crs=da.rio.crs).to_crs(epsg=4326).total_bounds.tolist()
-    # }
     da = rioxarray.open_rasterio(src)
     nodata_val = da.rio.nodata
     if nodata_val is None:
@@ -280,6 +301,7 @@ def raster_specs(src: str) -> dict:
             'maxx': bounds_proj[2],
             'maxy': bounds_proj[3]
         },
+        ** common_specs(src)
     }
 
 def raster_ts_specs(src: str, timestamps_attr: str = 'band_names') -> dict:
@@ -367,7 +389,6 @@ def tif_to_cog3857(src: str, dst: str = None, debug: bool = False, **kwargs) -> 
             dst = src.replace('.tif', '-cog3857.tif')
         else:
             dst = f"{s3_utils._BASE_BUCKET_}/cog/{juststem(src)}-cog3857.tif"
-            # FIXME: dst = f"{s3_utils._BASE_BUCKET}/cog/{juststem(src)}-cog3857.tif"
 
     # DOC: if dst is a s3 uri, use a temporary local file     
     if dst.startswith('s3://') or dst.startswith('https://s3'):

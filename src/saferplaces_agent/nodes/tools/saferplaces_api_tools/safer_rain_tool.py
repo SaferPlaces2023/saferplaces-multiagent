@@ -171,7 +171,6 @@ class SaferRainTool(BaseAgentTool):
             """
             water = kwargs.get('water') or f"water-depth-{utils.b64uuid()}.tif"
             return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferrain-out/{water}"
-            # FIXME: return f"{s3_utils._BASE_BUCKET}/saferrain-out/{water}"
         
         def infer_mode(**kwargs):
             """

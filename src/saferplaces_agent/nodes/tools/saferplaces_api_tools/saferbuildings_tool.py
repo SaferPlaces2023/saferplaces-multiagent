@@ -302,7 +302,6 @@ class SaferBuildingsTool(BaseAgentTool):
             """
             out = kwargs.get('out') or f"flooded-buildings-{utils.b64uuid()}.geojson"
             return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferbuildings-out/{out}"
-            # FIXME: return f"{s3_utils._BASE_BUCKET}/saferbuildings-out/{out}"
             
         infer_rules = {
             'out': infer_out
@@ -362,7 +361,10 @@ class SaferBuildingsTool(BaseAgentTool):
                             'description': f"SaferBuildings output file with flooded buildings from this inputs: ({', '.join([f'{k}: {v}' for k,v in kwargs.items() if k!='out'])})",
                             'src': api_response['message']['body']['result']['s3_uri'],
                             'type': 'vector',
-                            'metadata': dict()
+                            'metadata': {
+                                'features_type': 'flooded-buildings',
+                                ** utils.vector_specs(api_response['message']['body']['result']['s3_uri']),
+                            }
                         }
                     ]
                     if not GraphStates.src_layer_exists(self.graph_state, api_response['message']['body']['result']['s3_uri'])

@@ -162,7 +162,7 @@ def render_layer(thread_id):
     
     if layer_type == 'vector':
         layer_render_src = utils.vector_to_geojson4326(layer_src)
-        metadata = dict()
+        metadata = utils.vector_specs(layer_render_src)
     elif layer_type == 'raster':
         layer_render_src = utils.tif_to_cog3857(layer_src)
         metadata = utils.raster_specs(layer_render_src)
@@ -171,3 +171,15 @@ def render_layer(thread_id):
         return jsonify({"error": f"Layer type '{layer_type}' is not supported"}), 400
         
     return jsonify({'src': utils.s3uri_to_https(layer_render_src), 'metadata': metadata}), 200
+
+
+# DOC: === Generic routes [user-independent] ====
+
+@app.route('/get-layer-url', methods=['POST'])
+def get_layer_url():
+    data = request.get_json(silent=True) or {}
+    layer_src = data.get('src', None)
+    if not layer_src:
+        return jsonify({"error": "Layer source is required"}), 400
+    
+    return jsonify({'download_url': utils.download_url(layer_src)}), 200
