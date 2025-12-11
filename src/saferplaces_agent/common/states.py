@@ -27,6 +27,7 @@ class BaseGraphState(MessagesState):
     node_params: Annotated[dict, utils.merge_dictionaries] = dict()
     layer_registry: Annotated[Sequence[dict], merge_layer_registry] = []
     avaliable_tools: list[str] | None = []
+    confirm_tool_execution: bool = True
     
     user_id: str = None
     project_id: str = None    

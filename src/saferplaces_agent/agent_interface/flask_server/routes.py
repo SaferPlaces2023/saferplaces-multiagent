@@ -89,6 +89,26 @@ def start():
     }), 200
 
 
+@app.route('/t/<thread_id>/state', methods=['POST'])
+def state(thread_id):
+    gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
+    if not gi:
+        return jsonify({"error": "GraphInterface not found"}), 404
+    
+    # DOC: if no updates are provided, route is used to retrieve the current state
+
+    data = request.get_json(silent=True) or dict()
+    state_updates = data.get('state_updates', dict())
+    if not isinstance(state_updates, dict) or len(state_updates) == 0:
+        return gi.get_state(), 200
+    
+    # DOC: Filter the updated state to only include keys that were requested
+    updated_state = gi.set_state(state_updates)
+    updated_state = { k: v for k, v in updated_state.items() if k in state_updates }
+    
+    return jsonify(updated_state), 200
+
+
 @app.route('/t/<thread_id>', methods=['POST'])
 def prompt(thread_id):
     

@@ -119,7 +119,7 @@ class BaseAgentTool(BaseTool):
     
     # DOC: Confirm args if needed 
     def confirm_args(self, tool_args): 
-        if not self.execution_confirmed:
+        if self.graph_state.get('confirm_tool_execution', True) and not self.execution_confirmed:
             raise BaseToolInterrupt(
                 interrupt_tool = self.name,
                 interrupt_type = BaseToolInterrupt.BaseToolInterruptType.CONFIRM_ARGS,

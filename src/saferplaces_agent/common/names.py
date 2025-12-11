@@ -102,9 +102,9 @@ SAFERCAST_API_SUBGRAPH = "safercast_api_subgraph"
 SAFERCAST_API_TOOL_HANDLER = "safercast_api_tool_handler"
 SAFERCAST_API_TOOL_INTERRUPT = "safercast_api_tool_interrupt"
 
+DPC_RETRIEVER_TOOL = "dpc_retriever_tool"
 ICON2I_INGESTOR_TOOL = "icon2i_ingestor_tool"
 ICON2I_RETRIEVER_TOOL = "icon2i_retriever_tool"
-DPC_RETRIEVER_TOOL = "dpc_retriever_tool"
 
 # ENDREGION: [SaferCastAPI Subgraph]
 

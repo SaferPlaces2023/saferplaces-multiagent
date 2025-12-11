@@ -180,6 +180,20 @@ class GraphInterface:
         if isinstance(key, list):
             return {k: state.get(k, fallback) for k in key}
         
+    
+    def set_state(self, state_updates: dict) -> dict:
+        if state_updates is None:
+            state_updates = dict()
+            return self.get_state()
+        
+        current_state = self.get_state()
+        state_updates = {k: v for k, v in state_updates.items()}
+        _ = list( self.G.stream(
+            input = state_updates,
+            config = self.config, stream_mode = 'updates'
+        ) )
+        return self.get_state()
+        
         
     def register_layer(self, 
         src: str,
