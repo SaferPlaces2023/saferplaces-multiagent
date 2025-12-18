@@ -26,6 +26,7 @@ class BaseGraphState(MessagesState):
     node_history: Annotated[Sequence[str], utils.merge_sequences] = []
     node_params: Annotated[dict, utils.merge_dictionaries] = dict()
     layer_registry: Annotated[Sequence[dict], merge_layer_registry] = []
+    user_drawn_shapes: Annotated[Sequence[dict], merge_user_drawn_shapes] = []
     avaliable_tools: list[str] | None = []
     confirm_tool_execution: bool = True
     
@@ -34,7 +35,10 @@ class BaseGraphState(MessagesState):
 
 
 def merge_layer_registry(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
-    return utils.merge_dict_sequences(left, right, unique_key='src')
+    return utils.merge_dict_sequences(left, right, unique_key='src', method='update')
+
+def merge_user_drawn_shapes(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
+    return utils.merge_dict_sequences(left, right, unique_key='collection_id', method='overwrite')
 
 
 
@@ -136,5 +140,48 @@ def build_layer_registry_system_message(layer_registry: list) -> SystemMessage:
     lines.append("- If the type is 'vector', assume it contains geographic features like polygons, lines, or points.")
     lines.append("- If the type is 'raster', assume it contains gridded geospatial data.")
     lines.append("[/LAYER REGISTRY]")
+    
+    return SystemMessage(content="\n".join(lines))
+
+
+def build_user_drawn_shapes_system_message(user_drawn_shapes: list) -> SystemMessage:
+    """
+    Generate a system message dynamically from a list of user-drawn shapes.
+    
+    Args:
+        user_drawn_shapes (list[dict]): List of user-drawn shapes where each shape has at least:
+            - collection_id (str): Unique identifier for the shape
+            - type (str): Type of the shape (e.g., "polygon", "line", "point")
+            - geometry (dict): Geometry data of the shape
+            - metadata (optional dict): Additional metadata of the shape
+    Returns:
+        SystemMessage: A formatted system message ready to be injected before the user prompt.
+    """
+
+    if not user_drawn_shapes:
+        return SystemMessage(content="No user-drawn shapes available in the registry.")
+
+    lines = []
+    lines.append("[USER DRAWN SHAPES]")
+    lines.append("The following user-drawn shapes are currently available in the project.")
+    lines.append("Each shape has a `collection_id` that should be referenced in conversations or tool calls "
+                "when you need to use it.\n")
+    lines.append("Shapes:")
+    for idx, shape in enumerate(user_drawn_shapes, start=1):
+        lines.append(f"{idx}.")
+        lines.append(f"  - collection_id: {shape['collection_id']}")
+        lines.append(f"  - type: {shape['metadata']['feature_type']}")
+        lines.append(f"  - features:")
+        lines.append(f"{indent(json.dumps(shape['features'], indent=4), prefix='    ')}")
+        if 'metadata' in shape and shape['metadata']:
+            lines.append("  - metadata:")
+            # Pretty print nested properties with indentation
+            props_json = json.dumps(shape['metadata'], indent=4)
+            lines.append(indent(props_json, prefix="      "))
+
+    lines.append("\nInstructions:")
+    lines.append("- When a user request can be satisfied by using one of these shapes, prefer re-using the shape instead of creating a new one.")
+    lines.append("- Always refer to the `collection_id` when mentioning or selecting a shape in your tool arguments.")
+    lines.append("[/USER DRAWN SHAPES]")
     
     return SystemMessage(content="\n".join(lines))

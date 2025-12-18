@@ -6,6 +6,7 @@ from langgraph.graph import END
 from langgraph.types import Command
 
 from . import BaseToolInterrupt
+from ...common import names as N
 
 
 # DOC: base_tool_handler is a function that creates a tool handler function for a specific AgentTool.
@@ -78,6 +79,7 @@ class BaseToolHandlerNode:
         
         # DOC: This is a template function that will be used to create the tool handler function node.
         def tool_handler_template(state):
+            
             tool_message = state["messages"][-1]
             tool_call = tool_message.tool_calls[-1]
             
@@ -95,8 +97,9 @@ class BaseToolHandlerNode:
                         'tool_handler_node': self.tool_handler_node_name,    # INFO: Where to return interrupt "response" data
                     }
                 }
+                update_state.update(tool_interrupt.state_updates)
                 return Command(goto=self.tool_interrupt_node_name, update = update_state)     
-                    
+            
             tool_response_message = {
                 "role": "tool",
                 "name": tool_call['name'], 

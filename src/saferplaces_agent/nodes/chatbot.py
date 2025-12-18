@@ -6,7 +6,7 @@ from langgraph.graph import END
 from langgraph.types import Command
 
 from langgraph.prebuilt import ToolNode
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, RemoveMessage, ToolMessage, AIMessage
 from langchain_core.runnables import Runnable
 from langchain_core.language_models import LanguageModelInput
 
@@ -71,9 +71,35 @@ def chatbot_update_messages(state: BaseGraphState):
     messages = state.get("node_params", dict()).get(N.CHATBOT_UPDATE_MESSAGES, dict()).get("update_messages", [])
     return {'messages': messages, 'node_params': {N.CHATBOT_UPDATE_MESSAGES: { 'update_messages': None }}}
 
+# !!!: openai.BadRequestError: Error code: 400 - {'error': {'message': "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id' .. } }
+def get_orphan_tool_calls(state: BaseGraphState):
+    """If the last by one has tool_cals and last message is not a tool message, remove the last by one."""
+    if len(state["messages"]) < 2:
+        return []
+    orpahn_tool_messages = []
+    for mi,message in enumerate(state["messages"][:-1]):
+        if not (hasattr(message, "tool_calls") and len(message.tool_calls) > 0):
+            continue
+        if type(state["messages"][mi + 1]) is not ToolMessage:
+            orpahn_tool_messages.append(message)
+    # if hasattr(state["messages"][-1], "tool_calls") and len(state["messages"][-1].tool_calls) > 0:
+        # orpahn_tool_messages.append(state["messages"][-1])
+    return orpahn_tool_messages
+def fix_orphan_tool_calls(state: BaseGraphState):
+    """If the last by one has tool_cals and last message is not a tool message, remove the last by one."""
+    orphan_tool_messages = get_orphan_tool_calls(state)
+    ai_tool_message = AIMessage(content='', tool_calls=orphan_tool_messages[-1].tool_calls)
+    update_state = { 'messages': 
+        [ RemoveMessage(id=m.id) for m in orphan_tool_messages ] +
+        [ ai_tool_message ]
+    } if len(orphan_tool_messages) > 0 else dict()
+    return Command(goto=N.CHATBOT, update=update_state)
+
+
 _chatbot_ending_edges = Literal[
     END,
     N.CHATBOT_UPDATE_MESSAGES, 
+    N.FIX_ORPHAN_TOOL_CALLS,
     # N.DEMO_SUBGRAPH, 
     # N.CREATE_PROJECT_SUBGRAPH, 
     # N.FLOODING_RAINFALL_SUBGRAPH, 
@@ -89,8 +115,21 @@ def chatbot(state: BaseGraphState) -> Command[_chatbot_ending_edges]:     # type
             return Command(goto=N.CHATBOT_UPDATE_MESSAGES)
         
         llm_with_tools = set_tool_choice(tool_choice = state.get("avaliable_tools", list()))
+
+        # !!!: HACK: If the last message has tool calls and the next message is not a tool message, remove the last message
+        # DOC: This is a workaround for the OpenAI API error: "An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id' .."
+        print('\n-------- BEFORE FIX ------------\n', state['messages'], '\n--------------------------\n')
+        orphan_tool_calls = get_orphan_tool_calls(state)
+        if len(orphan_tool_calls) > 0:
+            print(f"[DEBUG] chatbot: found orphan tool calls, fixing them: {get_orphan_tool_calls(state)}")
+            return Command(goto=N.FIX_ORPHAN_TOOL_CALLS)
         
-        ai_message = llm_with_tools.invoke(state["messages"])
+        print('\n-------- AFTER FIX ------------\n', state['messages'], '\n--------------------------\n')
+        
+        if isinstance(state["messages"][-1], AIMessage):
+            ai_message = state["messages"][-1]
+        else:
+            ai_message = llm_with_tools.invoke(state["messages"])
         
         if hasattr(ai_message, "tool_calls") and len(ai_message.tool_calls) > 0:
             

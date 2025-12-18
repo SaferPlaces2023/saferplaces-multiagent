@@ -1,6 +1,9 @@
 from typing import Optional, Union, List, Dict, Any, Literal
 from pydantic import BaseModel, Field, AliasChoices, field_validator, model_validator
 
+import datetime
+
+from ...common import utils
 
 
 class BBox(BaseModel):
@@ -36,3 +39,48 @@ class BBox(BaseModel):
         Get the longitude range as [west, east].
         """
         return [self.west, self.east]
+    
+    def draw_feature_collection(
+            self,
+            collection_id: str | None = None,
+            description: str | None = None
+        ) -> Dict[str, Any]:
+        """
+        Convert the bounding box to a GeoJSON-like dictionary for drawing.
+        """
+        collection_id = collection_id or utils.random_id8()
+        name = f"draw-bbox-src-{collection_id}"
+        description = description or None
+        return {
+            "collection_id": collection_id,
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [self.west, self.south],
+                            [self.east, self.south],
+                            [self.east, self.north],
+                            [self.west, self.north],
+                            [self.west, self.south]
+                        ]]
+                    },
+                    "properties": {
+                        "ts": datetime.datetime.now(tz=datetime.timezone.utc).timestamp() * 1000  # Convert to milliseconds
+                    }
+                }
+            ],
+            "metadata": {
+                "bounds": {
+                    "minx": self.west,
+                    "miny": self.south,
+                    "maxx": self.east,
+                    "maxy": self.north
+                },
+                "feature_type": "bbox",
+                "name": name,
+                "description": description
+            },
+        }

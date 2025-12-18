@@ -23,6 +23,7 @@ class BaseAgentTool(BaseTool):
     
     # DOC: Additional args
     graph_state: dict = None
+    confirm_args_state_updates: dict = dict()
     execution_confirmed: bool = False
     output_confirmed: bool = False
     output: dict = None
@@ -127,7 +128,8 @@ class BaseAgentTool(BaseTool):
                 interrupt_data = {
                     "args": tool_args,
                     # "args_schema": self.args_schema.model_fields # !!!: this could cause exception 'TypeError: Type is not msgpack serializable: FieldInfo'
-                }
+                },
+                state_updates = self.confirm_args_state_updates
             )
             
     # DOC: Confirm output if needed      

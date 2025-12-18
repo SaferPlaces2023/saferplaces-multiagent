@@ -11,6 +11,8 @@ GRAPH = "SAFERPLACES-AGENT"
 
 CHATBOT = "chatbot"
 CHATBOT_UPDATE_MESSAGES = "chatbot_update_messages"
+FIX_ORPHAN_TOOL_CALLS = "fix_orphan_tool_calls"
+STATE_UPDATER = "state_updater"
 
 # Endregion: [Chatbot]
 

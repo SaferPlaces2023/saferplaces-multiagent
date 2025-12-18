@@ -109,6 +109,8 @@ class DigitalTwinInputSchema(BaseModel):
 class DigitalTwinTool(BaseAgentTool):
 
     # DOC: Initialize the tool with a name, description and args_schema
+    current_bbox_id: Optional[str] = None  # DOC: This is used to track the current bbox id, so we can update the state with the drawn bbox feature collection
+
     def __init__(self, **kwargs):
         super().__init__(
             name = N.DIGITAL_TWIN_TOOL,
@@ -161,6 +163,8 @@ class DigitalTwinTool(BaseAgentTool):
         )
         self.execution_confirmed = False
         self.output_confirmed = True
+        
+        self.current_bbox_id = None  # DOC: This is used to track the current bbox id, so we can update the state with the drawn bbox feature collection
 
     
     # DOC: Validation rules ( i.e.: valid init and lead time ... ) 
@@ -170,6 +174,18 @@ class DigitalTwinTool(BaseAgentTool):
     
     # DOC: Inference rules ( i.e.: from location name to bbox ... )
     def _set_args_inference_rules(self) -> dict:
+
+        def infer_bbox(**kwargs):
+            bbox = kwargs.get('bbox')
+            if self.current_bbox_id is not None and any(fc['collection_id']==self.current_bbox_id for fc in self.graph_state.get('user_drawn_shapes', list())):
+                fc = next(fc for fc in self.graph_state['user_drawn_shapes'] if fc['collection_id'] == self.current_bbox_id)
+                bbox = base_models.BBox(
+                    west=fc['metadata']['bounds']['minx'], 
+                    south=fc['metadata']['bounds']['miny'], 
+                    east=fc['metadata']['bounds']['maxx'], 
+                    north=fc['metadata']['bounds']['maxy']
+                )
+            return bbox
         
         def infer_pixelsize(**kwargs):
             lower_limit = 5
@@ -178,10 +194,24 @@ class DigitalTwinTool(BaseAgentTool):
             return pixelsize
         
         infer_rules = {
-            'pixelsize': infer_pixelsize
+            'bbox': infer_bbox,
+            'pixelsize': infer_pixelsize,
         }
         return infer_rules
         
+
+    # DOC: Override def confirm_args(self, tool_args): 
+    def confirm_args(self, tool_args): 
+        bbox_draw_shape = tool_args['bbox'].draw_feature_collection(
+            collection_id = self.current_bbox_id,
+            description = "Digital Twin Area of Interest (AOI) drawn on the map."
+        )
+        self.current_bbox_id = bbox_draw_shape['collection_id']
+        self.confirm_args_state_updates = {
+            'user_drawn_shapes': [ bbox_draw_shape ],
+        }
+        super().confirm_args(tool_args)
+    
     
     # DOC: Execute the tool → Build notebook, write it to a file and return the path to the notebook and the zarr output file
     def _execute(

@@ -243,7 +243,8 @@ class BaseToolInterruptArgsConfirmationHandler(BaseToolInterruptHandler):
         
         interruption = interrupt({
             "content": interrupt_message,
-            "interrupt_type": BaseToolInterrupt.BaseToolInterruptType.CONFIRM_ARGS
+            "interrupt_type": BaseToolInterrupt.BaseToolInterruptType.CONFIRM_ARGS,
+            'state_updates': self.tool_interrupt.get('state_updates', dict())
         })
         response = interruption.get('response', 'User did not provide any response.')
         
@@ -476,6 +477,8 @@ class BaseToolInterruptNode:
             # DOC: OP.1 — i.e. BaseToolInterruptProvideArgsHandler.handle() -> _generate_interrupt_message > _generate_provided_args > _update_tool_message > return Command(goto=tool_handler_node, update={'messages' [tool_message]}
             # DOC: OP.2 — i.e. A generic class with handle method that return {'goto': node-name, 'update': state}
             
+            print('eccoo ######--------------------------#############')
+
             command = self.tool_interupt_handlers[tool_interrupt['type']].handle(tool, interrupt_data)
             
             next_node = command['goto']

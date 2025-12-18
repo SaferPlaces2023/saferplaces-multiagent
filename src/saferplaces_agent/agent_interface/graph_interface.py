@@ -86,7 +86,8 @@ class ConversationHandler:
             return {
                 "role": "interrupt",
                 "content": msg.value['content'],
-                "interrupt_type": msg.value['interrupt_type']
+                "interrupt_type": msg.value['interrupt_type'],
+                "state_updates": msg.value.get('state_updates', dict())
             }
             
         message_type_map = {
@@ -188,10 +189,29 @@ class GraphInterface:
         
         current_state = self.get_state()
         state_updates = {k: v for k, v in state_updates.items()}
+        # _ = list( self.G.stream(
+        #     input = state_updates,
+        #     config = self.config, stream_mode = 'updates'
+        # ) )
+        # self.G.update_state(
+        #     self.config,
+        #     values = state_updates,
+        #     # as_node = 'chatbot' # !!!: this is a hack to update the state in the chatbot node
+        # )
+        
+        system_messages = []
+        if 'layer_registry' in state_updates:
+            system_messages.append(GraphStates.build_layer_registry_system_message(state_updates.get('layer_registry', [])))
+        if 'user_drawn_shapes' in state_updates:
+            system_messages.append(GraphStates.build_user_drawn_shapes_system_message(state_updates.get('user_drawn_shapes', [])))
+        if system_messages: #and self.interrupt is None:
+            state_updates['messages'] = state_updates.get('messages', []) + system_messages
+        
         _ = list( self.G.stream(
             input = state_updates,
             config = self.config, stream_mode = 'updates'
         ) )
+        self.on_end_event(state_updates)
         return self.get_state()
         
         
@@ -282,15 +302,19 @@ class GraphInterface:
             system_messages.append(GraphStates.build_nowtime_system_message())
             if 'layer_registry' in state_updates and state_updates['layer_registry']:
                 system_messages.append(GraphStates.build_layer_registry_system_message(state_updates.get('layer_registry', [])))
+            if 'user_drawn_shapes' in state_updates and state_updates['user_drawn_shapes']:
+                system_messages.append(GraphStates.build_user_drawn_shapes_system_message(state_updates.get('user_drawn_shapes', [])))        
             return system_messages
         
         def build_stream():
             stream_obj = dict()
             if self.interrupt is not None:
+                print(f"RESUMING INTERRUPT: {self.interrupt}")
                 self.update_events(HumanMessage(content=prompt, resume_interrupt={ 'interrupt_type': self.interrupt.value['interrupt_type'] }))
                 self.interrupt = None
                 stream_obj = Command(resume={'response': prompt})
             else:
+                print(f"NEW PROMPT: {prompt}")
                 self.update_events(HumanMessage(content=prompt))
                 stream_obj = {
                     'messages': [
@@ -302,6 +326,7 @@ class GraphInterface:
                     'node_params': state_updates.get('node_params', dict()),
                     'node_history': state_updates.get('node_history', []),
                     'layer_registry': state_updates.get('layer_registry', []),
+                    'user_drawn_shapes': state_updates.get('user_drawn_shapes', []),
                     'avaliable_tools': state_updates.get('avaliable_tools', self.get_state('avaliable_tools', [])),
                     'nowtime': datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat(),
                 }
@@ -318,11 +343,18 @@ class GraphInterface:
                 self.update_events(self.interrupt)
                 
             self.on_end_event(event_value)
+
+        def check_interrupt_update_state():
+            if self.interrupt is not None and \
+                isinstance(self.interrupt, Interrupt) and 'state_updates' in self.interrupt.value and \
+                isinstance(self.interrupt.value['state_updates'], dict) and len(self.interrupt.value['state_updates']) > 0:
+                self.set_state(self.interrupt.value['state_updates'])
+                return
             
                      
         stream_prompt = build_stream()
-        yield self.conversation_handler.get_new_events
-        
+        # yield self.conversation_handler.get_new_events  # ???: why is this here?
+
         for event in self.G.stream(
             input = stream_prompt,
             config = self.config,
@@ -334,7 +366,9 @@ class GraphInterface:
                     yield self.conversation_handler.get_new_events
                     
         self.on_end_event(stream_prompt) # ???: maybe it should be called before G.stream()
-    
+
+        # check_interrupt_update_state()
+
 
     
 

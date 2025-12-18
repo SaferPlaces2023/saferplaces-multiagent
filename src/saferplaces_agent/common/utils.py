@@ -7,6 +7,8 @@ import ast
 import uuid
 import math
 import base64
+import string
+import secrets
 import hashlib
 import datetime
 import requests
@@ -21,7 +23,7 @@ from shapely.geometry import box
 import geopandas as gpd
 
 import rasterio
-import rioxarray
+import rioxarray as rxr
 from rasterio.io import MemoryFile
 from rasterio.warp import calculate_default_transform, reproject
 from rasterio.enums import Resampling
@@ -51,6 +53,10 @@ def guid():
 def b64uuid():
     u = uuid.uuid4()
     return base64.urlsafe_b64encode(u.bytes).rstrip(b'=').decode('ascii')
+
+def random_id8():
+    chars = string.ascii_letters + string.digits  # A-Z a-z 0-9
+    return ''.join(secrets.choice(chars) for _ in range(8))
 
 def hash_string(s, hash_method=hashlib.md5):
     return hash_method(s.encode('utf-8')).hexdigest()
@@ -275,7 +281,7 @@ def vector_to_geojson4326(src: str, dst: str = None, debug: bool = False) -> str
     
 
 def raster_specs(src: str) -> dict:
-    da = rioxarray.open_rasterio(src)
+    da = rxr.open_rasterio(src)
     nodata_val = da.rio.nodata
     if nodata_val is None:
         da_valid = da
@@ -307,7 +313,7 @@ def raster_specs(src: str) -> dict:
 def raster_ts_specs(src: str, timestamps_attr: str = 'band_names') -> dict:
     """Get the specifications of a raster time series."""
     base_specs = raster_specs(src)
-    da = rioxarray.open_rasterio(src)
+    da = rxr.open_rasterio(src)
     try:
         timestamps = da.attrs[timestamps_attr]
         timestamps = ast.literal_eval(timestamps)
@@ -342,6 +348,9 @@ def is_raster_3857(src: str) -> bool:
         # Prova con /vsicurl/
         # vsicurl_path = f"/vsicurl/{src}"
         try:
+            with rxr.open_rasterio(src) as da:
+                if da.rio.crs is not None and da.rio.crs.to_epsg() is not None:
+                    return da.rio.crs.to_epsg() == 3857                    
             with rasterio.open(src) as ds:
                 return ds.crs is not None and ds.crs.to_epsg() == 3857
         except Exception:
@@ -584,14 +593,17 @@ def merge_dictionaries(left: dict, right: dict) -> dict:
             left[key] = value
     return left     
 
-def merge_dict_sequences(left: Sequence[dict], right: Sequence[dict], unique_key: str | None = None) -> Sequence[dict]:
+def merge_dict_sequences(left: Sequence[dict], right: Sequence[dict], unique_key: str | None = None, method: str | None = 'update') -> Sequence[dict]:
     """Add two lists of dictionaries together, merging by unique_key if provided and updating the values."""
     if unique_key is None:
         return merge_sequences(left, right)
     merged = {item[unique_key]: item for item in left}
     for item in right:
         if item[unique_key] in merged:
-            merged[item[unique_key]] = merge_dictionaries(merged[item[unique_key]], item)
+            if method == 'update':
+                merged[item[unique_key]] = merge_dictionaries(merged[item[unique_key]], item)
+            elif method == 'overwrite':
+                merged[item[unique_key]] = item
         else:
             merged[item[unique_key]] = item       
     return list(merged.values())
