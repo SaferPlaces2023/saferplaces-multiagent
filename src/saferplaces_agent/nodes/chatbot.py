@@ -19,9 +19,10 @@ from ..nodes.tools import (
     SaferRainTool,
     SaferBuildingsTool,
 
+    DPCRetrieverTool,
     ICON2IIngestorTool,
     ICON2IRetrieverTool,
-    DPCRetrieverTool,
+    MeteoblueRetrieverTool,
     
     GeospatialOpsTool
 )
@@ -44,8 +45,9 @@ tools_map[N.SAFER_RAIN_TOOL] = SaferRainTool()
 tools_map[N.SAFERBUILDINGS_TOOL] = SaferBuildingsTool()
 # DOC: ↓↓↓ SaferCast API tools
 # tools_map[N.ICON2I_INGESTOR_TOOL] = ICON2IIngestorTool() # ???: It is not needed in the agent (?)
-tools_map[N.ICON2I_RETRIEVER_TOOL] = ICON2IRetrieverTool()
 tools_map[N.DPC_RETRIEVER_TOOL] = DPCRetrieverTool()
+tools_map[N.ICON2I_RETRIEVER_TOOL] = ICON2IRetrieverTool()
+tools_map[N.METEOBLUE_RETRIEVER_TOOL] = MeteoblueRetrieverTool()
 # DOC: ↓↓↓ Auxiliary tools
 tools_map[N.GEOSPATIAL_OPS_TOOL] = GeospatialOpsTool()
 
@@ -149,7 +151,7 @@ def chatbot(state: BaseGraphState) -> Command[_chatbot_ending_edges]:     # type
             if tool_call['name'] in (N.DIGITAL_TWIN_TOOL, N.SAFER_RAIN_TOOL, N.SAFERBUILDINGS_TOOL):
                 return Command(goto = N.SAFERPLACES_API_SUBGRAPH, update = { "messages": [ai_message], "node_history": [N.CHATBOT, N.SAFERPLACES_API_SUBGRAPH] })
             
-            elif tool_call['name'] in (N.ICON2I_INGESTOR_TOOL, N.ICON2I_RETRIEVER_TOOL, N.DPC_RETRIEVER_TOOL):
+            elif tool_call['name'] in (N.DPC_RETRIEVER_TOOL, N.ICON2I_INGESTOR_TOOL, N.ICON2I_RETRIEVER_TOOL, N.METEOBLUE_RETRIEVER_TOOL):
                 return Command(goto = N.SAFERCAST_API_SUBGRAPH, update = { "messages": [ai_message], "node_history": [N.CHATBOT, N.SAFERCAST_API_SUBGRAPH] })
             
             elif tool_call['name'] == N.GEOSPATIAL_OPS_TOOL:

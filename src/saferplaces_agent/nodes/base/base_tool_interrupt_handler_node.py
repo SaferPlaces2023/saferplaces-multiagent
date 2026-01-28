@@ -5,15 +5,15 @@ from langgraph.graph import END
 from langgraph.types import Command, interrupt
 from langchain_core.messages import SystemMessage, RemoveMessage
 
-from ... import utils
+from ... import utils, states as GraphStates
 from ... import names as N
-from . import BaseToolInterrupt
+from . import BaseToolInterrupt, BaseAgentTool
 
 
 class BaseToolInterruptHandler:
     
     def __init__(self):
-        self.tool = None
+        self.tool: BaseAgentTool = None
         self.interrupt_data = None
         self.tool_message = None
         self.tool_interrupt = None
@@ -21,7 +21,7 @@ class BaseToolInterruptHandler:
         self.tool_name = None
         
     def handle(self, tool, interupt_data):
-        self.tool = tool
+        self.tool: BaseAgentTool = tool
         self.interrupt_data = interupt_data
         self.tool_message = self.interrupt_data['tool_message']
         self.tool_interrupt = self.interrupt_data['tool_interrupt']
@@ -49,17 +49,63 @@ class BaseToolInterruptProvideArgsHandler(BaseToolInterruptHandler):
         
     def _generate_provided_args(self, response):
         provided_args = utils.ask_llm(
-            role = 'system',
-            message = f"""The tool execution could not be completed for this reason:
-            {self.tool_interrupt['reason']}
-            The user was asked to provide the missing arguments for the tool execution.
-            The user replied: "{response}".
-            If the user has provided valid arguments please reply with a dictionary with key the argument names and value what was specified by the user.
-            If a value for an argument was not provided, then the value should be None.
-            User can provide only some of the arguments.
-            Reply with only the dictionary and nothing else.
-            If the user asked to interrupt the tool process and exit, return None and nothing else.
-            """,
+            role = None,
+            message=[
+                GraphStates.build_nowtime_system_message(),
+                GraphStates.build_layer_registry_system_message(self.tool.graph_state.get('layer_registry', [])),
+                GraphStates.build_user_drawn_shapes_system_message(self.tool.graph_state.get('user_drawn_shapes', [])),
+                # dict(
+                #     role = 'system',
+                #     content = f"""The tool execution could not be completed for this reason:
+                #     {self.tool_interrupt['reason']}
+                #     The user was asked to provide the missing arguments for the tool execution.
+                #     The user replied: "{response}".
+                #     If the user has provided valid arguments please reply with a dictionary with key the argument names and value what was specified by the user.
+                #     If a value for an argument was not provided, then the value should be None.
+                #     User can provide only some of the arguments.
+                #     Reply with only the dictionary and nothing else.
+                #     If the user asked to interrupt the tool process and exit, return None and nothing else.
+                #     """
+                # )
+                dict(
+                    role="system",
+                    content=f"""
+                    You are helping recover missing tool arguments so the tool can run.
+
+                    Context available:
+                    - "Now time" info (from the earlier system message)
+                    - Layer registry (from the earlier system message)
+                    - User-drawn shapes (from the earlier system message)
+
+                    The previous tool execution failed for this reason:
+                    {self.tool_interrupt['reason']}
+
+                    The user was asked to provide the missing arguments.
+                    The user replied:
+                    "{response}"
+
+                    Your task:
+                    Infer the required tool arguments using BOTH:
+                    1) the user's reply, and
+                    2) the contextual system messages listed above.
+
+                    Important rules:
+                    - If the user’s reply does not explicitly include a literal value, it may instead describe how to obtain it (e.g., “use the selected shape”, “take the last layer”, “the current time”, “the rectangle I drew”, “the topmost visible layer”). In these cases, resolve the actual value by looking at the provided context messages.
+                    - If multiple candidates match, pick the most likely one and be consistent with common UX intent (e.g., “selected/active” > “last created” > “first in list”). If still ambiguous, set that argument to None.
+                    - Return ONLY a Python dictionary mapping argument_name -> value.
+                    - If the user provided only some arguments, set the others to None.
+                    - Do not include any extra keys, explanations, markdown, or surrounding text.
+
+                    Exit condition:
+                    - If the user asked to interrupt/cancel/exit the tool process, return None (and nothing else).
+
+                    Output format:
+                    - Either: {{"arg1": "<value_or_None>", "arg2": "<value_or_None>", "..."}}
+                    - Or: None
+                    """
+                )
+
+            ],
             eval_output = True
         ) 
         return provided_args

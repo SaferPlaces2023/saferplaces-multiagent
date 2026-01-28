@@ -107,6 +107,7 @@ SAFERCAST_API_TOOL_INTERRUPT = "safercast_api_tool_interrupt"
 DPC_RETRIEVER_TOOL = "dpc_retriever_tool"
 ICON2I_INGESTOR_TOOL = "icon2i_ingestor_tool"
 ICON2I_RETRIEVER_TOOL = "icon2i_retriever_tool"
+METEOBLUE_RETRIEVER_TOOL = "meteoblue_retriever_tool"
 
 # ENDREGION: [SaferCastAPI Subgraph]
 

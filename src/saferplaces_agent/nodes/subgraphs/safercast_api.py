@@ -5,9 +5,10 @@ from ...common import utils
 from ...common import names as N
 from ...common.states import BaseGraphState
 from ...nodes.tools import (
+    DPCRetrieverTool,
     ICON2IIngestorTool,
     ICON2IRetrieverTool,
-    DPCRetrieverTool
+    MeteoblueRetrieverTool
 )
 from ...nodes.base import BaseToolHandlerNode, BaseToolInterruptNode, BaseToolHandlerNodeCallback
 
@@ -15,13 +16,15 @@ from ...nodes.base import BaseToolHandlerNode, BaseToolInterruptNode, BaseToolHa
 
 # DOC: SAFERCAST API subgraph
 
+dpc_retriever_tool = DPCRetrieverTool()
 icon2i_ingestor_tool = ICON2IIngestorTool()
 icon2i_retriever_tool = ICON2IRetrieverTool()
-dpc_retriever_tool = DPCRetrieverTool()
+meteoblue_retriever_tool = MeteoblueRetrieverTool()
 safercast_api_tools_dict = {
+    dpc_retriever_tool.name: dpc_retriever_tool,
     icon2i_ingestor_tool.name: icon2i_ingestor_tool,
     icon2i_retriever_tool.name: icon2i_retriever_tool,
-    dpc_retriever_tool.name: dpc_retriever_tool
+    meteoblue_retriever_tool.name: meteoblue_retriever_tool,
 }
 safercast_api_tool_names = list(safercast_api_tools_dict.keys())
 safercast_api_tools = list(safercast_api_tools_dict.values())

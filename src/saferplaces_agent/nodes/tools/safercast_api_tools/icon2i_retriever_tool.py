@@ -347,7 +347,7 @@ class ICON2IRetrieverTool(BaseAgentTool):
                             'src': api_response['uri'],
                             'type': 'raster',
                             'metadata': {
-                                'surface_type': 'rain-timeseries',
+                                'surface_type': 'rain-timeseries', # !!!: to be refined based on variable >>> we need a mapping multi-provider-variable → surface-type
                                 ** utils.raster_ts_specs(api_response['uri']),
                             }
                         }

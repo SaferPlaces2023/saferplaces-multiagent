@@ -19,9 +19,10 @@ from .saferplaces_api_tools import (
 )
 
 from .safercast_api_tools import (
+    DPCRetrieverTool,
     ICON2IRetrieverTool,
     ICON2IIngestorTool,
-    DPCRetrieverTool
+    MeteoblueRetrieverTool
 )
 
 from .geospatial_ops_tools import (
