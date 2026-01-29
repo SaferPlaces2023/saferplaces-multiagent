@@ -334,6 +334,13 @@ class SaferBuildingsTool(BaseAgentTool):
                 **kwargs,               # DOC: Unpack the tool arguments
                 **credential_args,      # DOC: Add credentials
                 **debug_args,           # DOC: Add debug mode
+
+                # TEST: This is to ensure a beautiful output for testing / demo purposes
+                # ** {
+                #     'buildings': None,
+                #     'provider': 'OVERTURE',
+                #     'summary': True
+                # }
             }
         }
         
