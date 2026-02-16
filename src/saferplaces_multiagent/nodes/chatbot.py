@@ -26,25 +26,14 @@ from ..nodes.tools import (
     
     GeospatialOpsTool
 )
-# from agent.nodes.tools import DemoWeatherTool
-# from agent.nodes.subgraphs.create_project import create_project_subgraph_interface_tool
-# from agent.nodes.subgraphs.flooding_rainfall import flooding_rainfall_subgraph_interface_tool
 
 tools_map = dict()
-
-# INFO: ↓↓↓ Demo subgraph tools
-# demo_weather_tool = DemoWeatherTool()
-# tool_map[demo_weather_tool.name] = demo_weather_tool
-# INFO: ↓↓↓ CREATE_PROJECT_SUBGRAPH_INTERFACE_TOOL and FLOODING_RAINFALL_SUBGRAPH_INTERFACE_TOOL are not used in the chatbot, but they are still defined here for potential future use
-# tools_map[N.CREATE_PROJECT_SUBGRAPH_INTERFACE_TOOL] = create_project_subgraph_interface_tool
-# tools_map[N.FLOODING_RAINFALL_SUBGRAPH_INTERFACE_TOOL] = flooding_rainfall_subgraph_interface_tool
 
 # DOC: ↓↓↓ SaferPlaces API tools
 tools_map[N.DIGITAL_TWIN_TOOL] = DigitalTwinTool()
 tools_map[N.SAFER_RAIN_TOOL] = SaferRainTool()
 tools_map[N.SAFERBUILDINGS_TOOL] = SaferBuildingsTool()
 # DOC: ↓↓↓ SaferCast API tools
-# tools_map[N.ICON2I_INGESTOR_TOOL] = ICON2IIngestorTool() # ???: It is not needed in the agent (?)
 tools_map[N.DPC_RETRIEVER_TOOL] = DPCRetrieverTool()
 tools_map[N.ICON2I_RETRIEVER_TOOL] = ICON2IRetrieverTool()
 tools_map[N.METEOBLUE_RETRIEVER_TOOL] = MeteoblueRetrieverTool()
@@ -102,9 +91,6 @@ _chatbot_ending_edges = Literal[
     END,
     N.CHATBOT_UPDATE_MESSAGES, 
     N.FIX_ORPHAN_TOOL_CALLS,
-    # N.DEMO_SUBGRAPH, 
-    # N.CREATE_PROJECT_SUBGRAPH, 
-    # N.FLOODING_RAINFALL_SUBGRAPH, 
     N.SAFERPLACES_API_SUBGRAPH, 
     N.SAFERCAST_API_SUBGRAPH
 ]

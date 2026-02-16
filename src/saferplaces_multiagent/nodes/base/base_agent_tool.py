@@ -8,7 +8,7 @@ from langchain_core.callbacks import (
     CallbackManagerForToolRun,
 )
 
-from . import BaseToolInterrupt
+# from . import BaseToolInterrupt
 
 
 # DOC: This is a base agent tool that exploit ToolInterrupt for human-in-the-loop paradigm
@@ -64,15 +64,15 @@ class BaseAgentTool(BaseTool):
         
         if len(missing_args) > 0:
             self.execution_confirmed = False
-            raise BaseToolInterrupt(
-                interrupt_tool = self.name,
-                interrupt_type = BaseToolInterrupt.BaseToolInterruptType.PROVIDE_ARGS,
-                interrupt_reason = f"Missing required arguments: {missing_args}.",
-                interrupt_data = {
-                    "missing_args": missing_args,
-                    "args_schema": self.args_schema.model_fields
-                }
-            )
+            # raise BaseToolInterrupt(
+            #     interrupt_tool = self.name,
+            #     interrupt_type = BaseToolInterrupt.BaseToolInterruptType.PROVIDE_ARGS,
+            #     interrupt_reason = f"Missing required arguments: {missing_args}.",
+            #     interrupt_data = {
+            #         "missing_args": missing_args,
+            #         "args_schema": self.args_schema.model_fields
+            #     }
+            # )
             
     # DOC: Check invalid arguments based on a list of function related to each argument { argname: [ test(**tool_args) -> Invalid-Reason else None" , ... ], ... }
     def _set_args_validation_rules(self):
@@ -93,15 +93,15 @@ class BaseAgentTool(BaseTool):
                 
         if len(invalid_args) > 0:
             self.execution_confirmed = False
-            raise BaseToolInterrupt(
-                interrupt_tool = self.name,
-                interrupt_type = BaseToolInterrupt.BaseToolInterruptType.INVALID_ARGS,
-                interrupt_reason = f"Invalid arguments: {list(invalid_args.keys())}.",
-                interrupt_data = {
-                    "invalid_args": invalid_args,
-                    "args_schema": self.args_schema.model_fields
-                }
-            )
+            # raise BaseToolInterrupt(
+            #     interrupt_tool = self.name,
+            #     interrupt_type = BaseToolInterrupt.BaseToolInterruptType.INVALID_ARGS,
+            #     interrupt_reason = f"Invalid arguments: {list(invalid_args.keys())}.",
+            #     interrupt_data = {
+            #         "invalid_args": invalid_args,
+            #         "args_schema": self.args_schema.model_fields
+            #     }
+            # )
             
     # DOC: Infer argument values based on current provided values and one function reated to argument { argname: test(**tool_args) -> inferred_value , ... } 
     def _set_args_inference_rules(self):
@@ -120,30 +120,32 @@ class BaseAgentTool(BaseTool):
     
     # DOC: Confirm args if needed 
     def confirm_args(self, tool_args): 
-        if self.graph_state.get('confirm_tool_execution', True) and not self.execution_confirmed:
-            raise BaseToolInterrupt(
-                interrupt_tool = self.name,
-                interrupt_type = BaseToolInterrupt.BaseToolInterruptType.CONFIRM_ARGS,
-                interrupt_reason = "Please confirm the execution of the tool with the provided arguments.",
-                interrupt_data = {
-                    "args": tool_args,
-                    # "args_schema": self.args_schema.model_fields # !!!: this could cause exception 'TypeError: Type is not msgpack serializable: FieldInfo'
-                },
-                state_updates = self.confirm_args_state_updates
-            )
+        pass
+        # if self.graph_state.get('confirm_tool_execution', True) and not self.execution_confirmed:
+        #     raise BaseToolInterrupt(
+        #         interrupt_tool = self.name,
+        #         interrupt_type = BaseToolInterrupt.BaseToolInterruptType.CONFIRM_ARGS,
+        #         interrupt_reason = "Please confirm the execution of the tool with the provided arguments.",
+        #         interrupt_data = {
+        #             "args": tool_args,
+        #             # "args_schema": self.args_schema.model_fields # !!!: this could cause exception 'TypeError: Type is not msgpack serializable: FieldInfo'
+        #         },
+        #         state_updates = self.confirm_args_state_updates
+        #     )
             
     # DOC: Confirm output if needed      
     def confirm_ouputs(self, tool_args):
-        if not self.output_confirmed:
-            raise BaseToolInterrupt(
-                interrupt_tool = self.name,
-                interrupt_type = BaseToolInterrupt.BaseToolInterruptType.CONFIRM_OUTPUT,
-                interrupt_reason = "A user confirmation of the ouput is required.",
-                interrupt_data = {
-                    "args": tool_args,
-                    "output": self.output
-                }
-            )
+        pass
+        # if not self.output_confirmed:
+        #     raise BaseToolInterrupt(
+        #         interrupt_tool = self.name,
+        #         interrupt_type = BaseToolInterrupt.BaseToolInterruptType.CONFIRM_OUTPUT,
+        #         interrupt_reason = "A user confirmation of the ouput is required.",
+        #         interrupt_data = {
+        #             "args": tool_args,
+        #             "output": self.output
+        #         }
+        #     )
             
     # DOC: Tool esecution, what this returns will be settet as tool.ouput so this should be overriden by the user
     def _execute(self, **tool_args):

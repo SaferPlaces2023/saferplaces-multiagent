@@ -11,7 +11,7 @@ from langgraph.types import Command, Interrupt
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage, AnyMessage
 from langchain_core.load import load as lc_load
 
-from ..graph import graph
+from ..ma_graph import graph
 from ..common import s3_utils, utils
 from ..common import states as GraphStates
 # from .chat_handler import ChatHandler

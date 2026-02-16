@@ -10,9 +10,9 @@ from typing_extensions import Annotated
 from typing import Sequence, Any
 
 
-from langchain_core.messages import SystemMessage
+from langchain_core.messages import SystemMessage, AnyMessage
+from langgraph.graph import add_messages, MessagesState
 
-from langgraph.graph import MessagesState
 
 from . import utils
 
@@ -20,8 +20,27 @@ from . import utils
 # DOC: This is a basic state that will be used by all nodes in the graph. It ha one key: "messages" : list[AnyMessage]
 
 
-class BaseGraphState(MessagesState):
+class MABaseGraphState(MessagesState):
     """Basic state"""
+    project_id: str = None  
+    user_id: str = None
+    
+    parsed_request: dict = dict()
+    intent_supervisor: dict = dict()
+    
+    nowtime: str = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat()
+    layer_registry: Annotated[Sequence[dict], merge_layer_registry] = []
+    user_drawn_shapes: Annotated[Sequence[dict], merge_user_drawn_shapes] = []
+    avaliable_tools: list[str] | None = []    
+    
+    # messages: Annotated[list[AnyMessage], add_messages]
+    
+
+
+class BaseGraphState():
+    """Basic state"""
+    messages: Annotated[list[AnyMessage], add_messages]
+    
     nowtime: str = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat()
     node_history: Annotated[Sequence[str], utils.merge_sequences] = []
     node_params: Annotated[dict, utils.merge_dictionaries] = dict()

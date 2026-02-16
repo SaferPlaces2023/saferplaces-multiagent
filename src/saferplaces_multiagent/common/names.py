@@ -1,5 +1,19 @@
 # DOC: names for teh graph components
 
+class NodeNames:
+    
+    GRAPH = "SAFERPLACES-AGENT"
+    
+    initial_chat_agent = "initial_chat_agent"
+
+    safercast_agent = "safercast_agent"
+
+NN = NodeNames()
+
+
+
+
+
 # REGION: [Graph]
 
 GRAPH = "SAFERPLACES-AGENT"

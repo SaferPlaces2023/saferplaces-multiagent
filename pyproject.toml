@@ -1,5 +1,5 @@
 [project]
-name = "saferplaces-agent"
+name = "saferplaces-multiagent"
 version = "0.2.6"
 description = "Starter template for making a new agent LangGraph."
 authors = [

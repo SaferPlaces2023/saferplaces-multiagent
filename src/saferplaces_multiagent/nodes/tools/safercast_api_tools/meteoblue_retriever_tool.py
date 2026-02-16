@@ -16,7 +16,7 @@ from langchain_core.callbacks import (
 from ....common import utils, s3_utils
 from ....common import states as GraphStates
 from ....common import names as N
-from ....nodes.base import base_models, BaseAgentTool, BaseToolInterrupt
+from ....nodes.base import base_models, BaseAgentTool
 
 
 # Define supported variables based on _consts.py
@@ -146,15 +146,16 @@ class MeteoblueRetrieverSchema(BaseModel):
         # require at least some spatial constraint (optional: puoi renderlo obbligatorio)
         if self.bbox is None:
             # raise ValueError("Provide `bbox` or both `lat_range` and `long_range`.")
-            raise BaseToolInterrupt(
-                interrupt_tool = N.METEOBLUE_RETRIEVER_TOOL,
-                interrupt_type = BaseToolInterrupt.BaseToolInterruptType.PROVIDE_ARGS,
-                interrupt_reason = f"Missing required arguments: [bbox].",
-                interrupt_data = {
-                    "missing_args": ["bbox"],
-                    "args_schema": type(self).model_fields
-                }
-            )
+            # raise BaseToolInterrupt(
+            #     interrupt_tool = N.METEOBLUE_RETRIEVER_TOOL,
+            #     interrupt_type = BaseToolInterrupt.BaseToolInterruptType.PROVIDE_ARGS,
+            #     interrupt_reason = f"Missing required arguments: [bbox].",
+            #     interrupt_data = {
+            #         "missing_args": ["bbox"],
+            #         "args_schema": type(self).model_fields
+            #     }
+            # )
+            pass
 
         # --- time fallback from time_range ---
         if (self.time_start is None or self.time_end is None) and self.time_range:

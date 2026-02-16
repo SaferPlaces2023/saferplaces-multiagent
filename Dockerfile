@@ -38,4 +38,4 @@ ENV GUNICORN_WORKERS=3 \
 EXPOSE 5000
 
 # usa il path assoluto della venv: evita problemi di PATH
-CMD ["/venv/bin/gunicorn", "saferplaces_agent.agent_interface.flask_server.prod.wsgi:app", "-c", "src/saferplaces_agent/agent_interface/flask_server/prod/gunicorn.conf.py"]
+CMD ["/venv/bin/gunicorn", "saferplaces_multiagent.agent_interface.flask_server.prod.wsgi:app", "-c", "src/saferplaces_multiagent/agent_interface/flask_server/prod/gunicorn.conf.py"]

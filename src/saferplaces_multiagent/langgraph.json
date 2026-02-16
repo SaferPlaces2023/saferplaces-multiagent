@@ -1,7 +1,7 @@
 {
     "dependencies": ["."],
     "graphs": {
-      "agent": "./src/saferplaces_agent/agent/graph.py:graph"
+      "agent": "./src/saferplaces_multiagent/agent/graph.py:graph"
     },
     "env": ".env"
 }
