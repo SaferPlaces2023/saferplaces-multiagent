@@ -1,1 +1,1 @@
-langgraph dev --config src\saferplaces_agent\agent\langgraph.json
+langgraph dev --config src\saferplaces_multiagent\langgraph.json
