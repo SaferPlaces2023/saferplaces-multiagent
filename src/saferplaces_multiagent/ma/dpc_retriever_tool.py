@@ -389,7 +389,6 @@ class DPCRetrieverTool(BaseTool):
                 **debug_args                # DOC: Add debug mode
             }
         }
-        print(11111)
         
         # DOC: Call the DPC-Retriever API
         # api_response = requests.post(api_url, json=payload)
@@ -397,7 +396,7 @@ class DPCRetrieverTool(BaseTool):
             status_code = 200
             def json(self):
                 return dict(
-                    uri = 's3://example-bucket/dpc-out/example-raster.tif'
+                    uri = 's3://example-bucket/dpc-out/dpc-temperature.tif'
                 )
                 
         api_response = ApiResponse200()

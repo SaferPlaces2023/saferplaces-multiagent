@@ -118,7 +118,6 @@ class SupervisorAgent:
         if state.get("awaiting_user"):
             return state
 
-        # CASE A: plan già esiste -> siamo nel loop post-specialized
         if state.get("plan") is not None and state.get("current_step") is not None:
             state["current_step"] += 1
             return state
@@ -196,23 +195,5 @@ def build_supervisor_subgraph():
     subgraph.add_edge(START, "supervisor")    
     subgraph.add_edge("supervisor", "router")
     subgraph.add_edge("router", END)
-    
-    
-
-    # subgraph.add_conditional_edges(
-    #     "router",
-    #     SupervisorRouterNode.route,
-    #     {
-            
-    #         # "digital_twin_agent": "digital_twin_agent",
-    #         # "simulations_agent": "simulations_agent",
-    #         "retrieval_agent": END,
-    #         # "operational_agent": "operational_agent",
-
-    #         "chat_final": END,
-            
-    #         END: END,
-    #     }
-    # )
 
     return subgraph.compile()

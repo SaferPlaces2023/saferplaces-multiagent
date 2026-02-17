@@ -59,6 +59,7 @@ class DataRetrieverAgent():
 
         # If model didn't propose tool calls, just log and return (optional)
         if not getattr(invocation, "tool_calls", None):
+            state.setdefault("tool_results", {})
             state["tool_results"][f"step_{state['current_step']}"] = {"status": "no_tool_call", "text": getattr(invocation, "content", "")}
             return state
 
@@ -68,6 +69,7 @@ class DataRetrieverAgent():
 
         # --- Validate tool name ---
         if tool_name not in self.TOOLS:
+            state.setdefault("tool_results", {})
             state["tool_results"][f"step_{state['current_step']}"] = {"status": "unknown_tool", "tool": tool_name, "args": tool_args}
             # ask user (or fallback)
             state["awaiting_user"] = True
@@ -77,7 +79,8 @@ class DataRetrieverAgent():
             return state
         
         # --- Validate args BEFORE writing AI tool-call message into state ---
-        err = False #validate_tool_args(tool_name, tool_args)
+        err = False
+        # err = "Il time range deve essere dentro la settimana corrente" #validate_tool_args(tool_name, tool_args)
         if err:
             state["awaiting_user"] = True
             # domanda mirata: qui puoi estrarre i missing field dall'errore pydantic se vuoi
@@ -90,23 +93,41 @@ class DataRetrieverAgent():
 
 
         # --- Execute tool ---
-        print('---', tool_args)
         result = self.TOOLS[tool_name]._execute(**tool_args)
-        print('---', result)
         # Persist results
-        # state["tool_results"][f"step_{state['current_step']}"] = {
-        #     "tool": tool_name,
-        #     "args": tool_args,
-        #     "result": result
-        # }
-        
-        tool_response = ToolMessage(content=json.dumps(result), tool_call_id=tool_call["id"])
+        state.setdefault("tool_results", {})
+        state["tool_results"][f"step_{state['current_step']}"] = {
+            "tool": tool_name,
+            "args": tool_args,
+            "result": result
+        }
 
+        
+        
+        # tool_response = ToolMessage(content=f"Output generated from tool: {result}", tool_call_id=tool_call["id"])
+        tool_response = ToolMessage(
+            content=f"""
+        Layer generated:
+        - Title: DPC retrieved data layer.
+        - URI: 's3://example-bucket/dpc-out/dpc-temperature.tif',
+        - Parameters: {tool_args}
+        """,
+        tool_call_id=tool_call["id"]
+        )
+
+
+        print([tc["id"] for tc in invocation.tool_calls])
+        ai_message_out = self.llm.invoke([
+            invocation,
+            tool_response
+        ])
         # Now it's safe to append the AIMessage with tool_call AND the ToolMessage
         state["messages"] = [
             invocation,
-            tool_response
+            tool_response,
+            ai_message_out
         ]
+        # print('>>>>> ', ai_message_out.content)
 
         return state
 
