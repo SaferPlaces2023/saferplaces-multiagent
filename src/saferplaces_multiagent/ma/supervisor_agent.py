@@ -115,6 +115,14 @@ class SupervisorAgent:
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
 
+        if state.get("awaiting_user"):
+            return state
+
+        # CASE A: plan già esiste -> siamo nel loop post-specialized
+        if state.get("plan") is not None and state.get("current_step") is not None:
+            state["current_step"] += 1
+            return state
+
         if "parsed_request" not in state:
             return state
 
@@ -147,25 +155,32 @@ class SupervisorAgent:
 
 class SupervisorRouterNode:
 
-    def __call__(self, state: MABaseGraphState):
+
+    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+        return self.run(state)
+    
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        
+        def supervisor_next_node(state: MABaseGraphState) -> str:
+
+            if state.get("awaiting_user"):
+                return END
+
+            plan = state.get("plan")
+            step = state.get("current_step")
+
+            if not plan:
+                return "chat_final"
+
+            if step is not None and step < len(plan):
+                return plan[step]["agent"]
+
+            return "chat_final"
+        
+        state['supervisor_next_node'] = supervisor_next_node(state)
+        
         return state
 
-    @staticmethod
-    def route(state: MABaseGraphState):
-
-        if state.get("awaiting_user"):
-            return END
-
-        plan = state.get("plan")
-        step = state.get("current_step")
-
-        if not plan:
-            return "chat_final"
-
-        if step is not None and step < len(plan):
-            return plan[step]["agent"]
-
-        return "chat_final"
 
 
 def build_supervisor_subgraph():
@@ -178,24 +193,26 @@ def build_supervisor_subgraph():
     subgraph.add_node("supervisor", supervisor_node)
     subgraph.add_node("router", router_node)
 
+    subgraph.add_edge(START, "supervisor")    
     subgraph.add_edge("supervisor", "router")
+    subgraph.add_edge("router", END)
+    
+    
 
-    subgraph.add_conditional_edges(
-        "router",
-        SupervisorRouterNode.route,
-        {
+    # subgraph.add_conditional_edges(
+    #     "router",
+    #     SupervisorRouterNode.route,
+    #     {
             
-            # "digital_twin_agent": "digital_twin_agent",
-            # "simulations_agent": "simulations_agent",
-            "retrieval_agent": END,
-            # "operational_agent": "operational_agent",
+    #         # "digital_twin_agent": "digital_twin_agent",
+    #         # "simulations_agent": "simulations_agent",
+    #         "retrieval_agent": END,
+    #         # "operational_agent": "operational_agent",
 
-            "chat_final": END,
+    #         "chat_final": END,
             
-            END: END,
-        }
-    )
-
-    subgraph.set_entry_point("supervisor")
+    #         END: END,
+    #     }
+    # )
 
     return subgraph.compile()

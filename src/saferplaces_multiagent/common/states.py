@@ -28,6 +28,7 @@ class MABaseGraphState(TypedDict):
 
     # DOC: multi-agent metadata
     parsed_request: Dict[str, Any]
+    supervisor_next_node: str
     # DOC: handling user-agent conversation flow 
     plan: Optional[List[dict]]
     current_step: Optional[int]

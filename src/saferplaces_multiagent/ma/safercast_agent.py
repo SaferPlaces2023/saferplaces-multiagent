@@ -1,14 +1,16 @@
+import json
+
 from langgraph.types import Command
 from langgraph.graph import StateGraph
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 
 from ..common.names import NN
 from ..common.states import BaseGraphState, MABaseGraphState
 from ..common.utils import _base_llm
 
-
+from .dpc_retriever_tool import DPCRetrieverTool, DPCRetrieverSchema
 
 class Prompts:
 
@@ -28,10 +30,12 @@ class DataRetrieverAgent():
     
     def __init__(self):
         self.name = 'DataRetrieverAgent'
-        self.llm = _base_llm.bind_tools([
-            # if you're using LangChain tools objects, pass those instead
-            # Here we assume tool calling schema is handled by bind_tools in your stack
-        ])
+        
+        self.TOOLS = dict(
+            dpc_retriever_tool = DPCRetrieverTool()
+        )
+        
+        self.llm = _base_llm.bind_tools(list(self.TOOLS.values()))
 
     
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
@@ -49,33 +53,35 @@ class DataRetrieverAgent():
             {"role": "user", "content": Prompts.specialized_request(goal, parsed_request)}
         ]
 
-        resp = self.llm.invoke(messages)
+        invocation = self.llm.invoke(messages)
+        
+        print(invocation.content)
 
         # If model didn't propose tool calls, just log and return (optional)
-        if not getattr(resp, "tool_calls", None):
-            state["tool_results"][f"step_{state['current_step']}"] = {"status": "no_tool_call", "text": getattr(resp, "content", "")}
+        if not getattr(invocation, "tool_calls", None):
+            state["tool_results"][f"step_{state['current_step']}"] = {"status": "no_tool_call", "text": getattr(invocation, "content", "")}
             return state
 
-        tool_call = resp.tool_calls[0]          # take first for minimal skeleton
+        tool_call = invocation.tool_calls[0]          # take first for minimal skeleton
         tool_name = tool_call["name"]
         tool_args = tool_call.get("args", {}) or {}
 
         # --- Validate tool name ---
-        if tool_name not in TOOLS:
+        if tool_name not in self.TOOLS:
             state["tool_results"][f"step_{state['current_step']}"] = {"status": "unknown_tool", "tool": tool_name, "args": tool_args}
             # ask user (or fallback)
             state["awaiting_user"] = True
-            state["messages"] = state["messages"] + [
+            state["messages"] = [
                 AIMessage(content=f"Non riconosco il tool richiesto ({tool_name}). Puoi riformulare cosa vuoi ottenere?")
             ]
             return state
         
         # --- Validate args BEFORE writing AI tool-call message into state ---
-        err = validate_tool_args(tool_name, tool_args)
+        err = False #validate_tool_args(tool_name, tool_args)
         if err:
             state["awaiting_user"] = True
             # domanda mirata: qui puoi estrarre i missing field dall'errore pydantic se vuoi
-            state["messages"] = state["messages"] + [
+            state["messages"] = [
                 AIMessage(content=f"Mi manca/incoerente qualche parametro per procedere ({tool_name}). Dettaglio: {err}\n"
                                   f"Puoi fornirmi i valori mancanti?")
             ]
@@ -84,19 +90,22 @@ class DataRetrieverAgent():
 
 
         # --- Execute tool ---
-        result = TOOLS[tool_name]["fn"](**tool_args)
-
+        print('---', tool_args)
+        result = self.TOOLS[tool_name]._execute(**tool_args)
+        print('---', result)
         # Persist results
-        state["tool_results"][f"step_{state['current_step']}"] = {
-            "tool": tool_name,
-            "args": tool_args,
-            "result": result
-        }
+        # state["tool_results"][f"step_{state['current_step']}"] = {
+        #     "tool": tool_name,
+        #     "args": tool_args,
+        #     "result": result
+        # }
+        
+        tool_response = ToolMessage(content=json.dumps(result), tool_call_id=tool_call["id"])
 
         # Now it's safe to append the AIMessage with tool_call AND the ToolMessage
-        state["messages"] = state["messages"] + [
-            resp,
-            ToolMessage(content=json.dumps(result), tool_call_id=tool_call["id"])
+        state["messages"] = [
+            invocation,
+            tool_response
         ]
 
         return state
@@ -112,9 +121,9 @@ GN = GraphNodes()
 graph_builder = StateGraph(MABaseGraphState)
 
 
-graph_builder.add_node(GN.initial_chat_agent.name, GN.initial_chat_agent)
+graph_builder.add_node("retrieval_agent", DataRetrieverAgent())
 
-graph_builder.add_edge(START, GN.initial_chat_agent.name)
+graph_builder.add_edge(START, "retrieval_agent")
 
 
 graph = graph_builder.compile()

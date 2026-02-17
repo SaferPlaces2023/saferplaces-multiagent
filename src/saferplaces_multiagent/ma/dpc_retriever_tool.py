@@ -23,6 +23,8 @@ from typing import Optional, List, Literal
 from pydantic import BaseModel, Field, model_validator
 from datetime import timezone
 
+from langchain_core.tools import BaseTool
+
 
 # ---- Product enum (allowed values) ----
 DPCProductCode = Literal[
@@ -202,7 +204,7 @@ class DPCRetrieverSchema(BaseModel):
 
 
 
-class DPCRetrieverTool():
+class DPCRetrieverTool(BaseTool):
     """
     Tool for retrieving meteorological products from the Italian Civil Protection Department (DPC).
 
@@ -252,8 +254,12 @@ class DPCRetrieverTool():
             args_schema=DPCRetrieverSchema,
             **kwargs
         )
-        self.execution_confirmed = False
-        self.output_confirmed = True
+        
+        # self.args_validation_rules = self._set_args_validation_rules()
+        # self.args_infer_rules = self._set_args_inference_rules()
+        
+        # self.execution_confirmed = False
+        # self.output_confirmed = True
 
 
     # DOC: Validation rules ( i.e.: valid init and lead time ... ) 
@@ -352,20 +358,20 @@ class DPCRetrieverTool():
     def _execute(
         self,
         /,
-        **kwargs: Any,  # dict[str, Any] = None,
+        **kwargs: Any
     ): 
         # DOC: Call the SaferBuildings API ...
         api_url = f"{os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5002')}/processes/dpc-retriever-process/execution"
         
         kwargs = {
             'product': kwargs['product'],
-            'lat_range': kwargs['bbox'].lat_range(),
-            'long_range': kwargs['bbox'].long_range(),
+            # 'lat_range': kwargs['bbox']['lat_range'],
+            # 'long_range': kwargs['bbox']['long_range'],
             'time_range': [
-                datetime.datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
-                datetime.datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
+                # datetime.datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
+                # datetime.datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
             ],
-            'bucket_destination': kwargs['bucket_destination']
+            # 'bucket_destination': kwargs['bucket_destination']
         }
         
         credentials_args = {
@@ -383,9 +389,43 @@ class DPCRetrieverTool():
                 **debug_args                # DOC: Add debug mode
             }
         }
+        print(11111)
         
         # DOC: Call the DPC-Retriever API
-        api_response = requests.post(api_url, json=payload)
+        # api_response = requests.post(api_url, json=payload)
+        class ApiResponse200:
+            status_code = 200
+            def json(self):
+                return dict(
+                    uri = 's3://example-bucket/dpc-out/example-raster.tif'
+                )
+                
+        api_response = ApiResponse200()
+        
+        if api_response.status_code != 200:
+            return {
+                'status': 'error',
+                'message': f"Failed to execute DPC Retriever API: {api_response.status_code}"
+            }
+            
+        api_response = api_response.json()
+        
+        if 'uri' not in api_response:
+            return {
+                'status': 'error',
+                'message': f"Unexpected response from DPC Retriever API: {api_response}"
+            }
+            
+        return {
+            'status': 'success',
+            'tool_output': {
+                'data': api_response,
+                'description': f"DPC {kwargs['product']} data.",
+            }
+        }
+        
+        
+        # REF: [↓↓↓ OLD ↓↓↓]
         
         # DOC: If the api call fails, return an error response
         if api_response.status_code != 200:
