@@ -205,6 +205,8 @@ for step_num, (node_name, ev) in enumerate(_node_trace, 1):
     llm_data = None
     if has_llm and llm_key:
         meta = llm_metadata.get(llm_key, {})
+        llm_input = meta.get("input", meta.get("messages", {}))
+        llm_output = meta.get("output", {})
         llm_data = {
             "model": meta.get("model", "gpt-4o-mini"),
             "token_usage": {
@@ -212,8 +214,14 @@ for step_num, (node_name, ev) in enumerate(_node_trace, 1):
                 "output": meta.get("output_tokens", 0),
                 "total": meta.get("total_tokens", 0),
             },
-            "prompt_messages": meta.get("messages", {}),
-            "structured_output": meta.get("parsed_output"),
+            "input": {
+                "system": llm_input.get("system"),
+                "user": llm_input.get("user"),
+            },
+            "output": {
+                "raw": llm_output.get("raw", llm_input.get("assistant")),
+                "parsed": llm_output.get("parsed", meta.get("parsed_output")),
+            },
         }
 
     # State updates

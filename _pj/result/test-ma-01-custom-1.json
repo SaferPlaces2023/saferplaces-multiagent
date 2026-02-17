@@ -1,0 +1,138 @@
+[
+  {
+    "step": 0,
+    "type": "session",
+    "data": {
+      "thread_id": "00d6d8b7-a36a-450c-9270-a0d2651ad7f2",
+      "user_id": "tommaso",
+      "project_id": "mao",
+      "prompt": "What is the flood risk in Venice?",
+      "timestamp": "2026-02-17T09:22:04.561862+00:00"
+    }
+  },
+  {
+    "step": 1,
+    "type": "node",
+    "data": {
+      "node": "chat_agent",
+      "callable": "ma.chat_agent.ChatAgent.run()",
+      "node_input": {
+        "type": "user_prompt",
+        "value": "What is the flood risk in Venice?"
+      },
+      "llm_call": {
+        "model": "gpt-4o-mini-2024-07-18",
+        "token_usage": {
+          "input": 106,
+          "output": 33,
+          "total": 139
+        },
+        "prompt_messages": {
+          "system": null,
+          "user": "What is the flood risk in Venice?",
+          "assistant": "{\"intent\":\"Inquire about flood risk in Venice\",\"entities\":[\"Venice\",\"flood risk\"],\"raw_text\":\"What is the flood risk in Venice?\"}"
+        },
+        "structured_output": {
+          "intent": "Inquire about flood risk in Venice",
+          "entities": [
+            "Venice",
+            "flood risk"
+          ],
+          "raw_text": "What is the flood risk in Venice?"
+        }
+      },
+      "state_updates": {
+        "parsed_request": {
+          "intent": "Inquire about flood risk in Venice",
+          "entities": [
+            "Venice",
+            "flood risk"
+          ],
+          "raw_text": "What is the flood risk in Venice?"
+        }
+      },
+      "output_keys": [
+        "parsed_request"
+      ]
+    }
+  },
+  {
+    "step": 2,
+    "type": "node",
+    "data": {
+      "node": "supervisor_subgraph",
+      "callable": "ma.supervisor_agent.SupervisorAgent.run()  +  SupervisorRouterNode.route()",
+      "node_input": {
+        "type": "state",
+        "from": "chat_agent",
+        "keys": [
+          "parsed_request"
+        ]
+      },
+      "llm_call": {
+        "model": "gpt-4o-mini-2024-07-18",
+        "token_usage": {
+          "input": 462,
+          "output": 53,
+          "total": 515
+        },
+        "prompt_messages": {
+          "system": "You are a high-level orchestration agent.\n\nYour task:\n- Analyze the parsed user request.\n- Decide which specialized agents must execute the task.\n- Break the task into ordered execution steps.\n- Each step must specify:\n  - the agent name\n  - the goal of that step\n\nRules:\n- Only use agents from the provided registry.\n- Do NOT invent new agents.\n- Do NOT execute tools.\n- Do NOT ask the user questions.\n- Focus only on execution planning.\n- Keep the plan minimal and logically ordered.",
+          "user": "Parsed request:\n{'intent': 'Inquire about flood risk in Venice', 'entities': ['Venice', 'flood risk'], 'raw_text': 'What is the flood risk in Venice?'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]",
+          "assistant": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve current flood risk data for Venice from relevant third-party sources.\"},{\"agent\":\"simulations_agent\",\"goal\":\"Run simulation models to assess the potential impact of floods in Venice based on retrieved data.\"}]}"
+        },
+        "structured_output": {
+          "steps": [
+            {
+              "agent": "retrieval_agent",
+              "goal": "Retrieve current flood risk data for Venice from relevant third-party sources."
+            },
+            {
+              "agent": "simulations_agent",
+              "goal": "Run simulation models to assess the potential impact of floods in Venice based on retrieved data."
+            }
+          ]
+        }
+      },
+      "state_updates": {
+        "plan": [
+          {
+            "agent": "retrieval_agent",
+            "goal": "Retrieve current flood risk data for Venice from relevant third-party sources."
+          },
+          {
+            "agent": "simulations_agent",
+            "goal": "Run simulation models to assess the potential impact of floods in Venice based on retrieved data."
+          }
+        ],
+        "current_step": 0,
+        "awaiting_user": false
+      },
+      "output_keys": [
+        "plan",
+        "current_step",
+        "awaiting_user"
+      ]
+    }
+  },
+  {
+    "step": 3,
+    "type": "node",
+    "data": {
+      "node": "retrieval_agent",
+      "callable": "ma_graph.retrieval_agent()  # passthrough",
+      "node_input": {
+        "type": "state",
+        "from": "supervisor_subgraph",
+        "keys": [
+          "plan",
+          "current_step",
+          "awaiting_user"
+        ]
+      },
+      "llm_call": null,
+      "state_updates": null,
+      "output_keys": null
+    }
+  }
+]
