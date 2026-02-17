@@ -1,3 +1,6 @@
+import warnings
+warnings.filterwarnings("ignore", message="Pydantic serializer warnings")
+
 from dotenv import load_dotenv
 
 load_dotenv()
