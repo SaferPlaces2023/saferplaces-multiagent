@@ -3,6 +3,7 @@ import json
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
+from ..names import NodeNames, AgentNames
 from langchain_core.messages import AIMessage, SystemMessage
 
 
@@ -46,7 +47,7 @@ class FinalResponder:
     """Agent that generates the final user-facing response."""
 
     def __init__(self):
-        self.name = "FinalResponder"
+        self.name = AgentNames.FINAL_RESPONDER
         self.llm = _base_llm
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:

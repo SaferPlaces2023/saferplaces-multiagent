@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, Human
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
 from .tools.dpc_retriever_tool import DPCRetrieverTool
+from ..names import NodeNames, AgentNames
 
 
 class Prompts:
@@ -31,7 +32,7 @@ class DataRetrieverAgent:
     )
 
     def __init__(self):
-        self.name = 'DataRetrieverAgent'
+        self.name = AgentNames.DATA_RETRIEVER_AGENT
         self.tools = {tool_name: tool() for tool_name, tool in self.tools.items()}
         self.llm = _base_llm.bind_tools(list(self.tools.values()))
 

@@ -7,12 +7,12 @@ from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
-
+from ..names import NodeNames, AgentNames
 
 
 AGENT_REGISTRY = [
     {
-        "name": "digital_twin_agent",
+        "name": NodeNames.DIGITAL_TWIN_AGENT,
         "description": (
             "Build a geospatial digital twin."
         ),
@@ -24,7 +24,7 @@ AGENT_REGISTRY = [
     },
 
     {
-        "name": "simulations_agent",
+        "name": NodeNames.SIMULATIONS_AGENT,
         "description": (
             "Run simulation models"
         ),
@@ -37,7 +37,7 @@ AGENT_REGISTRY = [
 
 
     {
-        "name": "retrieval_agent",
+        "name": NodeNames.RETRIEVAL_AGENT,
         "description": (
             "Retrieve data from third-part provider."
         ),
@@ -48,7 +48,7 @@ AGENT_REGISTRY = [
     },
 
     {
-        "name": "operational_agent",
+        "name": NodeNames.OPERATIONAL_AGENT,
         "description": (
             "Perform a geospatial operation between layers."
         ),
@@ -108,6 +108,7 @@ class SupervisorAgent:
     """Agent responsible for planning and orchestrating execution steps."""
 
     def __init__(self):
+        self.name = AgentNames.SUPERVISOR_AGENT
         self.llm = _base_llm.with_structured_output(ExecutionPlan)
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
@@ -148,6 +149,10 @@ class SupervisorAgent:
     
 
 class SupervisorRouter:
+    """Router that determines the next node based on execution plan."""
+
+    def __init__(self):
+        self.name = NodeNames.SUPERVISOR_ROUTER
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         return self.run(state)
@@ -163,12 +168,12 @@ class SupervisorRouter:
             step = state.get("current_step")
 
             if not plan:
-                return "chat_final"
+                return NodeNames.FINAL_RESPONDER
 
             if step is not None and step < len(plan):
                 return plan[step]["agent"]
 
-            return "chat_final"
+            return NodeNames.FINAL_RESPONDER
         
         state['supervisor_next_node'] = supervisor_next_node(state)
         
