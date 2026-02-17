@@ -47,23 +47,80 @@ GI.G.stream = _patched_stream
 
 out = list(GI.user_prompt(prompt))
 print(f"Pipeline returned {len(out)} event batches (= {len(_node_trace)} graph nodes fired).")
-print()
-print("  Node trace:")
-for i, (node_name, keys, _) in enumerate(_node_trace, 1):
-    print(f"    {i}. {node_name}  (state keys: {', '.join(keys) if keys else 'none'})")
 
 
-# --- STEP 3: Node History (pipeline trace) ---
+# --- STEP 3: Pipeline Flow (INPUT -> PROCESS -> OUTPUT per node) ---
 print(f"\n{SEP}")
-print("STEP 3: NODE HISTORY (Pipeline Trace)")
+print("STEP 3: PIPELINE FLOW")
 print(SEP)
 state = GI.graph_state
-node_history = state.get('node_history', [])
-if node_history:
-    for i, node_name in enumerate(node_history, 1):
-        print(f"  {i}. {node_name}")
-else:
-    print("No node history recorded.")
+
+prev_state = {}
+for i, (node_name, keys, event_value) in enumerate(_node_trace, 1):
+    ev = event_value if isinstance(event_value, dict) else {}
+
+    # Determine what's NEW in this node's output vs. previous accumulated state
+    new_keys = []
+    changed_keys = []
+    for k, v in ev.items():
+        if k == 'message':
+            continue  # skip internal serialized message
+        if k not in prev_state:
+            new_keys.append(k)
+        elif str(prev_state.get(k)) != str(v):
+            changed_keys.append(k)
+
+    # Build input summary (what it received)
+    if i == 1:
+        input_summary = "user prompt (HumanMessage)"
+    else:
+        prev_node = _node_trace[i-2][0]
+        prev_out_keys = [k for k in _node_trace[i-2][1] if k != 'message']
+        input_summary = f"state from '{prev_node}' ({', '.join(prev_out_keys)})" if prev_out_keys else f"state from '{prev_node}'"
+
+    # Build output summary (what it produced/changed)
+    output_items = {}
+    for k in new_keys + changed_keys:
+        val = ev.get(k)
+        val_str = str(val)
+        if len(val_str) > 100:
+            val_str = val_str[:100] + '...'
+        output_items[k] = val_str
+
+    # Print the flow
+    node_sep = "-" * 60
+    print(f"\n  {node_sep}")
+    print(f"  [{i}] {node_name.upper()}")
+    print(f"  {node_sep}")
+    print(f"  INPUT   : {input_summary}")
+
+    # Process description based on node name
+    if 'chat_agent' in node_name:
+        print(f"  PROCESS : ** LLM CALL (gpt-4o-mini) ** -> structured output -> ParsedRequest (intent, entities, raw_text)")
+    elif 'supervisor' in node_name:
+        print(f"  PROCESS : ** LLM CALL (gpt-4o-mini) ** -> structured output -> ExecutionPlan (plan steps with agent + goal)")
+    elif 'retrieval_agent' in node_name:
+        print(f"  PROCESS : passthrough (no LLM call)")
+    else:
+        print(f"  PROCESS : {node_name}")
+
+    if output_items:
+        print(f"  OUTPUT  :")
+        for k, v in output_items.items():
+            tag = "(NEW)" if k in new_keys else "(CHANGED)"
+            print(f"            {tag} {k}: {v}")
+    else:
+        print(f"  OUTPUT  : (no state changes)")
+
+    # Update accumulated state
+    prev_state.update(ev)
+
+# Print the final flow summary
+print(f"\n  {'-' * 60}")
+print(f"  FLOW SUMMARY:")
+print(f"  {'-' * 60}")
+flow_nodes = [t[0] for t in _node_trace]
+print(f"  START -> {' -> '.join(flow_nodes)} -> END")
 
 
 # --- STEP 4: Available Tools ---
@@ -78,54 +135,9 @@ else:
     print("All tools available (no whitelist set).")
 
 
-# --- STEP 5: Parsed Request (NLU) ---
+# --- STEP 5: Conversation Events (detailed) ---
 print(f"\n{SEP}")
-print("STEP 5: PARSED REQUEST (NLU)")
-print(SEP)
-parsed = state.get('parsed_request')
-if parsed:
-    print(f"  Intent   : {parsed.get('intent', 'N/A')}")
-    print(f"  Entities : {parsed.get('entities', [])}")
-    print(f"  Raw text : {parsed.get('raw_text', 'N/A')}")
-else:
-    print("No parsed request found (active graph does not use MA pipeline).")
-
-
-# --- STEP 6: Execution Plan ---
-print(f"\n{SEP}")
-print("STEP 6: EXECUTION PLAN")
-print(SEP)
-plan = state.get('plan')
-current_step = state.get('current_step')
-if plan:
-    for i, step in enumerate(plan, 1):
-        marker = " <-- current" if current_step is not None and i - 1 == current_step else ""
-        print(f"  Step {i}: [{step.get('agent', '?')}] -> {step.get('goal', '?')}{marker}")
-else:
-    print("No execution plan found.")
-
-
-# --- STEP 7: Stream Events (node-by-node, raw) ---
-print(f"\n{SEP}")
-print("STEP 7: STREAM EVENTS (node-by-node, raw)")
-print(SEP)
-for i, (node_name, keys, event_value) in enumerate(_node_trace, 1):
-    print(f"  Batch {i}: Node = '{node_name}'")
-    if event_value is None:
-        print(f"           (no data)")
-    elif isinstance(event_value, dict):
-        for key, val in event_value.items():
-            val_str = str(val)
-            preview = (val_str[:200] + '...') if len(val_str) > 200 else val_str
-            print(f"           {key}: {preview}")
-    else:
-        print(f"           {str(event_value)[:200]}")
-    print()
-
-
-# --- STEP 8: Conversation Events (detailed) ---
-print(f"\n{SEP}")
-print("STEP 8: CONVERSATION EVENTS (detailed)")
+print("STEP 5: CONVERSATION EVENTS (detailed)")
 print(SEP)
 for i, evt_batch in enumerate(out, 1):
     # Match to the node name from our intercepted trace
@@ -158,9 +170,9 @@ for i, evt_batch in enumerate(out, 1):
         print(f"  (empty batch)\n")
 
 
-# --- STEP 9: Serialized Chat (JSON) ---
+# --- STEP 6: Serialized Chat (JSON) ---
 print(f"\n{SEP}")
-print("STEP 9: SERIALIZED CHAT (JSON)")
+print("STEP 6: SERIALIZED CHAT (JSON)")
 print(SEP)
 try:
     chat_json = GI.conversation_handler.chat2json(GI.conversation_events)
@@ -181,9 +193,9 @@ except Exception as e:
     print(f"Could not serialize chat: {e}")
 
 
-# --- STEP 10: Interrupt Status ---
+# --- STEP 7: Interrupt Status ---
 print(f"\n{SEP}")
-print("STEP 10: INTERRUPT STATUS")
+print("STEP 7: INTERRUPT STATUS")
 print(SEP)
 interrupt = GI.interrupt
 if interrupt:
@@ -201,9 +213,9 @@ confirm_tool = state.get('confirm_tool_execution', False)
 print(f"  Confirm before tool execution: {confirm_tool}")
 
 
-# --- STEP 11: Node Params ---
+# --- STEP 8: Node Params ---
 print(f"\n{SEP}")
-print("STEP 11: NODE PARAMS")
+print("STEP 8: NODE PARAMS")
 print(SEP)
 node_params = state.get('node_params', {})
 if node_params:
@@ -212,9 +224,9 @@ else:
     print("No node params recorded.")
 
 
-# --- STEP 12: Layer Registry ---
+# --- STEP 9: Layer Registry ---
 print(f"\n{SEP}")
-print("STEP 12: LAYER REGISTRY")
+print("STEP 9: LAYER REGISTRY")
 print(SEP)
 layers = state.get('layer_registry', [])
 if layers:
@@ -228,9 +240,9 @@ else:
     print("No layers registered.")
 
 
-# --- STEP 13: User Drawn Shapes ---
+# --- STEP 10: User Drawn Shapes ---
 print(f"\n{SEP}")
-print("STEP 13: USER DRAWN SHAPES")
+print("STEP 10: USER DRAWN SHAPES")
 print(SEP)
 shapes = state.get('user_drawn_shapes', [])
 if shapes:
@@ -245,9 +257,9 @@ else:
     print("No user drawn shapes.")
 
 
-# --- STEP 14: Full Graph State (raw) ---
+# --- STEP 11: Full Graph State (raw) ---
 print(f"\n{SEP}")
-print("STEP 14: FULL GRAPH STATE (raw)")
+print("STEP 11: FULL GRAPH STATE (raw)")
 print(SEP)
 pprint(GI.graph_state, width=120)
 
