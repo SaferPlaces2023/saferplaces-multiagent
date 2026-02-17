@@ -152,13 +152,13 @@ for step_num, (node_name, ev) in enumerate(_node_trace, 1):
         meta = llm_metadata.get(llm_key, {})
         llm_data = {
             "model": meta.get("model", "gpt-4o-mini"),
-            "tokens": {
+            "token_usage": {
                 "input": meta.get("input_tokens", 0),
                 "output": meta.get("output_tokens", 0),
                 "total": meta.get("total_tokens", 0),
             },
-            "messages": meta.get("messages", {}),
-            "parsed": meta.get("parsed_output"),
+            "prompt_messages": meta.get("messages", {}),
+            "structured_output": meta.get("parsed_output"),
         }
 
     # State updates
@@ -170,11 +170,11 @@ for step_num, (node_name, ev) in enumerate(_node_trace, 1):
 
     node_data = {
         "node": node_name,
-        "ref": info.get("ref", "?"),
-        "input": step_input,
-        "llm": llm_data,
-        "state": updates,
-        "output": writes if writes else None,
+        "callable": info.get("ref", "?"),
+        "node_input": step_input,
+        "llm_call": llm_data,
+        "state_updates": updates,
+        "output_keys": writes if writes else None,
     }
     pipeline.append({
         "step": step_num,

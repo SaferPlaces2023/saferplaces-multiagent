@@ -3,11 +3,11 @@
     "step": 0,
     "type": "session",
     "data": {
-      "thread_id": "3788c881-570c-458d-b33f-f8ace06eeb4c",
+      "thread_id": "f6757a39-90b1-430c-b29b-3924618b312e",
       "user_id": "tommaso",
       "project_id": "mao",
       "prompt": "Weather in milano?",
-      "timestamp": "2026-02-17T08:57:04.621297+00:00"
+      "timestamp": "2026-02-17T09:00:27.697481+00:00"
     }
   },
   {
@@ -15,41 +15,41 @@
     "type": "node",
     "data": {
       "node": "chat_agent",
-      "ref": "ma.chat_agent.ChatAgent.run()",
-      "input": {
+      "callable": "ma.chat_agent.ChatAgent.run()",
+      "node_input": {
         "type": "user_prompt",
         "value": "Weather in milano?"
       },
-      "llm": {
+      "llm_call": {
         "model": "gpt-4o-mini-2024-07-18",
-        "tokens": {
+        "token_usage": {
           "input": 103,
-          "output": 21,
-          "total": 124
+          "output": 22,
+          "total": 125
         },
-        "messages": {
+        "prompt_messages": {
           "system": null,
           "user": "Weather in milano?",
-          "assistant": "{\"intent\":\"GetWeather\",\"entities\":[\"Milano\"],\"raw_text\":\"Weather in milano?\"}"
+          "assistant": "{\"intent\":\"Get Weather Information\",\"entities\":[\"Milano\"],\"raw_text\":\"Weather in milano?\"}"
         },
-        "parsed": {
-          "intent": "GetWeather",
+        "structured_output": {
+          "intent": "Get Weather Information",
           "entities": [
             "Milano"
           ],
           "raw_text": "Weather in milano?"
         }
       },
-      "state": {
+      "state_updates": {
         "parsed_request": {
-          "intent": "GetWeather",
+          "intent": "Get Weather Information",
           "entities": [
             "Milano"
           ],
           "raw_text": "Weather in milano?"
         }
       },
-      "output": [
+      "output_keys": [
         "parsed_request"
       ]
     }
@@ -59,27 +59,27 @@
     "type": "node",
     "data": {
       "node": "supervisor_subgraph",
-      "ref": "ma.supervisor_agent.SupervisorAgent.run()  +  SupervisorRouterNode.route()",
-      "input": {
+      "callable": "ma.supervisor_agent.SupervisorAgent.run()  +  SupervisorRouterNode.route()",
+      "node_input": {
         "type": "state",
         "from": "chat_agent",
         "keys": [
           "parsed_request"
         ]
       },
-      "llm": {
+      "llm_call": {
         "model": "gpt-4o-mini-2024-07-18",
-        "tokens": {
-          "input": 449,
+        "token_usage": {
+          "input": 450,
           "output": 21,
-          "total": 470
+          "total": 471
         },
-        "messages": {
+        "prompt_messages": {
           "system": "You are a high-level orchestration agent.\n\nYour task:\n- Analyze the parsed user request.\n- Decide which specialized agents must execute the task.\n- Break the task into ordered execution steps.\n- Each step must specify:\n  - the agent name\n  - the goal of that step\n\nRules:\n- Only use agents from the provided registry.\n- Do NOT invent new agents.\n- Do NOT execute tools.\n- Do NOT ask the user questions.\n- Focus only on execution planning.\n- Keep the plan minimal and logically ordered.",
-          "user": "Parsed request:\n{'intent': 'GetWeather', 'entities': ['Milano'], 'raw_text': 'Weather in milano?'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]",
+          "user": "Parsed request:\n{'intent': 'Get Weather Information', 'entities': ['Milano'], 'raw_text': 'Weather in milano?'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]",
           "assistant": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve current weather information for Milano.\"}]}"
         },
-        "parsed": {
+        "structured_output": {
           "steps": [
             {
               "agent": "retrieval_agent",
@@ -88,7 +88,7 @@
           ]
         }
       },
-      "state": {
+      "state_updates": {
         "plan": [
           {
             "agent": "retrieval_agent",
@@ -98,7 +98,7 @@
         "current_step": 0,
         "awaiting_user": false
       },
-      "output": [
+      "output_keys": [
         "plan",
         "current_step",
         "awaiting_user"
@@ -110,8 +110,8 @@
     "type": "node",
     "data": {
       "node": "retrieval_agent",
-      "ref": "ma_graph.retrieval_agent()  # passthrough",
-      "input": {
+      "callable": "ma_graph.retrieval_agent()  # passthrough",
+      "node_input": {
         "type": "state",
         "from": "supervisor_subgraph",
         "keys": [
@@ -120,9 +120,9 @@
           "awaiting_user"
         ]
       },
-      "llm": null,
-      "state": null,
-      "output": null
+      "llm_call": null,
+      "state_updates": null,
+      "output_keys": null
     }
   }
 ]
