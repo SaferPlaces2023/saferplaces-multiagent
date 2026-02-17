@@ -22,7 +22,10 @@ graph_builder = StateGraph(MABaseGraphState)
 # DOC: Initial chat node
 graph_builder.add_node("chat_agent", ChatAgent())
 
-# DOC: Supervisor|Orchestrator router node
+# TODO: PLACEHOLDER — retrieval_agent is a passthrough that does nothing.
+#       It should contain the actual logic to execute the retrieval task
+#       planned by the supervisor (e.g., call weather API, DPC, Meteoblue tools).
+#       Currently it just returns state unchanged, producing an empty event batch.
 def retrieval_agent(state: MABaseGraphState)->MABaseGraphState:
     return state
 graph_builder.add_node("retrieval_agent", retrieval_agent)

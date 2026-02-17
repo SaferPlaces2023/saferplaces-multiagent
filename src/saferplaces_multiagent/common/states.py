@@ -34,6 +34,9 @@ class MABaseGraphState(TypedDict):
     tool_results: Dict[str, Any]
     awaiting_user: bool
     
+    # DOC: LLM call metadata (token usage per node)
+    llm_metadata: Dict[str, Any]
+    
     # DOC: user session
     project_id: str = None  
     user_id: str = None

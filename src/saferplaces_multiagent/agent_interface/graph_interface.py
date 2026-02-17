@@ -323,8 +323,10 @@ class GraphInterface:
                     ],
                     'user_id': self.user_id,
                     'project_id': self.project_id,
-                    'node_params': state_updates.get('node_params', dict()),
-                    'node_history': state_updates.get('node_history', []),
+                    # TODO: REMOVED — 'node_params' and 'node_history' belong to BaseGraphState (graph.py),
+                    #       not MABaseGraphState (ma_graph.py). They were silently ignored by LangGraph.
+                    # 'node_params': state_updates.get('node_params', dict()),
+                    # 'node_history': state_updates.get('node_history', []),
                     'layer_registry': state_updates.get('layer_registry', []),
                     'user_drawn_shapes': state_updates.get('user_drawn_shapes', []),
                     'avaliable_tools': state_updates.get('avaliable_tools', self.get_state('avaliable_tools', [])),
@@ -336,7 +338,12 @@ class GraphInterface:
             if 'messages' in event_value:
                 event_value['message'] = event_value['messages'][-1].to_json()
                 del event_value['messages']
-                self.update_events(lc_load(event_value['message']))     # !!!: json-message to obj-message → LangChainBetaWarning: The function `load` is in beta. It is actively being worked on, so the API may change.
+                # TODO: FIX DUPLICATE MESSAGES — every node that passes through the HumanMessage
+                #       in its state output causes it to be re-added to conversation_events.
+                #       We skip HumanMessages here because the original was already added in build_stream().
+                loaded_msg = lc_load(event_value['message'])    # !!!: json-message to obj-message → LangChainBetaWarning
+                if not isinstance(loaded_msg, HumanMessage):
+                    self.update_events(loaded_msg)
                 
             elif self._event_value_is_interrupt(event_value):
                 self.interrupt = self._event_value2interrupt(event_value)
