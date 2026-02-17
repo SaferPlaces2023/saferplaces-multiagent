@@ -182,10 +182,6 @@ class SupervisorRouter:
             if step is not None and step < len(plan):
                 return plan[step]["agent"]
 
-            state['plan'] = list()
-            state['current_step'] = None
-            state['parsed_request'] = dict()
-            state['tool_results'] = dict()
             return NodeNames.FINAL_RESPONDER
         
         next_node = supervisor_next_node(state)
