@@ -1,0 +1,57 @@
+import json
+
+from typing import List, Optional
+from pydantic import BaseModel, Field
+
+from ...common.states import MABaseGraphState
+from ...common.utils import _base_llm
+
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
+
+class ParsedRequest(BaseModel):
+    intent: str = Field(description="Main high-level intent")
+    entities: List[str] = Field(default_factory=list, description="List of relevant entities")
+    raw_text: str = Field(description="Original user input text")
+
+
+class Prompts:
+
+    SYSTEM_REQUEST_PROMPT = '\n'.join((
+        "You are an expert assistant that converts user requests into a structured execution request.",
+        "",
+        "Your tasks:",
+        "- Extract the main high-level intent of the request (as a short phrase).",
+        "- Extract a list of relevant entities explicitly mentioned in the request.",
+        "- Extract explicit parameters only if they are clearly stated.",
+        "- Copy the original user input as a field.",
+        "- Do not invent or hallucinate information. If a field is not present, leave it empty or as an empty list.",
+        "",
+        "Be precise, concise, and execution-oriented."
+    ))
+
+
+class RequestParser:
+
+    def __init__(self):
+        self.name = "RequestParser"
+        self.llm = _base_llm.with_structured_output(ParsedRequest)
+
+    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+        return self.run(state)
+
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        user_input = state["messages"][-1].content
+
+        if not isinstance(state["messages"][-1], HumanMessage):
+            return state
+
+        invoke_messages = [
+            SystemMessage(content=Prompts.SYSTEM_REQUEST_PROMPT),
+            HumanMessage(content=user_input)
+        ]
+
+        parsed: ParsedRequest = self.llm.invoke(invoke_messages)
+
+        state["parsed_request"] = parsed.model_dump()
+        return state

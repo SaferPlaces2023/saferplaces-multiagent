@@ -1,13 +1,12 @@
-import json
 
 from pydantic import BaseModel, Field
 from typing import List
 
 from langgraph.graph import StateGraph, START, END
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 
-from ..common.states import MABaseGraphState
-from ..common.utils import _base_llm
+from ...common.states import MABaseGraphState
+from ...common.utils import _base_llm
 
 
 
@@ -31,7 +30,7 @@ AGENT_REGISTRY = [
         ),
         "examples": [
             "Simulate 100mm of rain",
-            "Count how the buildings were affected by flood"
+            "Count how the buildings were saffected by flood"
         ]
     },
 
@@ -62,19 +61,10 @@ AGENT_REGISTRY = [
 ]
 
 
-class ExecutionPlan(BaseModel):
-
-    class PlanStep(BaseModel):
-        agent: str = Field(description="Name of the specialized agent to execute this step")
-        goal: str = Field(description="High-level description of what this step should accomplish")
-        
-    steps: List[PlanStep]
-
-
-
 class Prompts:
+    """Prompts for orchestration."""
 
-    supervisor_prompt = '\n'.join((
+    SUPERVISOR_PROMPT = '\n'.join((
         "You are a high-level orchestration agent.",
         "",
         "Your task:",
@@ -94,16 +84,28 @@ class Prompts:
         "- Keep the plan minimal and logically ordered.",
     ))
 
-    planning_prompt = lambda parsed_request: '\n'.join((
+    PLANNING_PROMPT = staticmethod(lambda parsed_request: '\n'.join((
         "Parsed request:",
         f"{parsed_request}",
         "",
-        "Avaliable agents:"
+        "Available agents:",
         f"{AGENT_REGISTRY}"
-    ))
+    )))
+
+
+class ExecutionPlan(BaseModel):
+    """Execution plan with ordered steps for agent orchestration."""
+
+    class PlanStep(BaseModel):
+        agent: str = Field(description="Name of the specialized agent to execute this step")
+        goal: str = Field(description="High-level description of what this step should accomplish")
+
+    steps: List[PlanStep]
+
 
 
 class SupervisorAgent:
+    """Agent responsible for planning and orchestrating execution steps."""
 
     def __init__(self):
         self.llm = _base_llm.with_structured_output(ExecutionPlan)
@@ -125,16 +127,11 @@ class SupervisorAgent:
 
         parsed_request = state["parsed_request"]
 
-        response: ExecutionPlan = self.llm.invoke([
-            {
-                "role": "system",
-                "content": Prompts.supervisor_prompt
-            },
-            {
-                "role": "user",
-                "content": Prompts.planning_prompt(parsed_request)
-            }
-        ])
+        invoke_messages = [
+            SystemMessage(content=Prompts.SUPERVISOR_PROMPT),
+            HumanMessage(content=Prompts.PLANNING_PROMPT(parsed_request))
+        ]
+        response: ExecutionPlan = self.llm.invoke(invoke_messages)
 
         valid_agent_names = {agent["name"] for agent in AGENT_REGISTRY}
 
@@ -148,10 +145,9 @@ class SupervisorAgent:
         state["awaiting_user"] = False
 
         return state
+    
 
-
-class SupervisorRouterNode:
-
+class SupervisorRouter:
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         return self.run(state)
@@ -177,21 +173,3 @@ class SupervisorRouterNode:
         state['supervisor_next_node'] = supervisor_next_node(state)
         
         return state
-
-
-
-def build_supervisor_subgraph():
-
-    subgraph = StateGraph(MABaseGraphState)
-
-    supervisor_node = SupervisorAgent()
-    router_node = SupervisorRouterNode()
-
-    subgraph.add_node("supervisor", supervisor_node)
-    subgraph.add_node("router", router_node)
-
-    subgraph.add_edge(START, "supervisor")    
-    subgraph.add_edge("supervisor", "router")
-    subgraph.add_edge("router", END)
-
-    return subgraph.compile()
