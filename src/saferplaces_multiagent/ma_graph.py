@@ -27,6 +27,14 @@ graph_builder.add_node("chat_agent", ChatAgent())
 #       planned by the supervisor (e.g., call weather API, DPC, Meteoblue tools).
 #       Currently it just returns state unchanged, producing an empty event batch.
 def retrieval_agent(state: MABaseGraphState)->MABaseGraphState:
+    # Implement retrieval logic: produce a final response and update state/output
+    # Example: simulate retrieval and add a result to state
+    state['retrieval_result'] = {
+        'status': 'success',
+        'data': 'Simulated retrieval output based on supervisor plan.'
+    }
+    # Optionally, add a final message
+    state['final_message'] = f"Retrieval completed: {state['retrieval_result']['data']}"
     return state
 graph_builder.add_node("retrieval_agent", retrieval_agent)
 

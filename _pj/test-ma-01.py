@@ -169,6 +169,42 @@ for msg in chat_json:
     content = str(msg.get('content', ''))[:120]
     print(f"    [{role}] {content}")
 
+# Show final response from retrieval_agent
+final_message = state.get('final_message')
+retrieval_result = state.get('retrieval_result')
+if final_message:
+    print(f"\n{'FINAL RESPONSE':^80}")
+    print(f"{SEP2}")
+    print(final_message)
+    if retrieval_result:
+        print(f"Result: {retrieval_result}")
+
+# Show LLM responses (raw + parsed)
+print(f"\n{'LLM RESPONSES':^80}")
+print(SEP2)
+for node_name, info in NODE_INFO.items():
+    if info.get('llm') and info.get('llm_key'):
+        meta = llm_metadata.get(info['llm_key'], {})
+        raw_resp = meta.get('raw_response', None)
+        parsed_out = meta.get('parsed_output', None)
+
+        print(f"\n[{node_name}]")
+        # Raw LLM response (the actual text the model generated)
+        if raw_resp:
+            print(f"  RAW LLM response:")
+            print(f"    {str(raw_resp)[:500]}")
+        else:
+            print(f"  RAW LLM response: (empty or function_call only)")
+
+        # Parsed structured output (Pydantic extraction)
+        if parsed_out:
+            print(f"  Parsed (structured):")
+            if isinstance(parsed_out, dict):
+                for k, v in parsed_out.items():
+                    print(f"    {k}: {str(v)[:120]}")
+            else:
+                print(f"    {str(parsed_out)[:300]}")
+
 print(SEP)
 
 
