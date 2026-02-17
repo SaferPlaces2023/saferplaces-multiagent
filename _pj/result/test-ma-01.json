@@ -1,37 +1,38 @@
-{
-  "session": {
-    "thread_id": "bd2b65a2-8776-4e8c-babe-e5de6af0e171",
-    "user_id": "tommaso",
-    "project_id": "mao",
-    "prompt": "Weather in milano?",
-    "timestamp": "2026-02-17T08:42:13.082349+00:00"
+[
+  {
+    "step": 0,
+    "type": "session",
+    "data": {
+      "thread_id": "3788c881-570c-458d-b33f-f8ace06eeb4c",
+      "user_id": "tommaso",
+      "project_id": "mao",
+      "prompt": "Weather in milano?",
+      "timestamp": "2026-02-17T08:57:04.621297+00:00"
+    }
   },
-  "pipeline_steps": [
-    {
-      "step": 1,
+  {
+    "step": 1,
+    "type": "node",
+    "data": {
       "node": "chat_agent",
-      "label": "Chat Agent (NLU Parser)",
       "ref": "ma.chat_agent.ChatAgent.run()",
-      "async": false,
       "input": {
         "type": "user_prompt",
         "value": "Weather in milano?"
       },
-      "process": {
-        "ref": "ma.chat_agent.ChatAgent.run()",
-        "type": "sync"
-      },
       "llm": {
         "model": "gpt-4o-mini-2024-07-18",
-        "input_tokens": 103,
-        "output_tokens": 21,
-        "total_tokens": 124,
+        "tokens": {
+          "input": 103,
+          "output": 21,
+          "total": 124
+        },
         "messages": {
           "system": null,
           "user": "Weather in milano?",
           "assistant": "{\"intent\":\"GetWeather\",\"entities\":[\"Milano\"],\"raw_text\":\"Weather in milano?\"}"
         },
-        "parsed_output": {
+        "parsed": {
           "intent": "GetWeather",
           "entities": [
             "Milano"
@@ -39,7 +40,7 @@
           "raw_text": "Weather in milano?"
         }
       },
-      "state_updates": {
+      "state": {
         "parsed_request": {
           "intent": "GetWeather",
           "entities": [
@@ -48,156 +49,80 @@
           "raw_text": "Weather in milano?"
         }
       },
-      "output": {
-        "updated_keys": [
-          "parsed_request"
-        ]
-      }
-    },
-    {
-      "step": 2,
+      "output": [
+        "parsed_request"
+      ]
+    }
+  },
+  {
+    "step": 2,
+    "type": "node",
+    "data": {
       "node": "supervisor_subgraph",
-      "label": "Supervisor (Planner)",
       "ref": "ma.supervisor_agent.SupervisorAgent.run()  +  SupervisorRouterNode.route()",
-      "async": false,
       "input": {
         "type": "state",
-        "from_node": "chat_agent",
+        "from": "chat_agent",
         "keys": [
           "parsed_request"
         ]
       },
-      "process": {
-        "ref": "ma.supervisor_agent.SupervisorAgent.run()  +  SupervisorRouterNode.route()",
-        "type": "sync"
-      },
       "llm": {
         "model": "gpt-4o-mini-2024-07-18",
-        "input_tokens": 449,
-        "output_tokens": 21,
-        "total_tokens": 470,
+        "tokens": {
+          "input": 449,
+          "output": 21,
+          "total": 470
+        },
         "messages": {
           "system": "You are a high-level orchestration agent.\n\nYour task:\n- Analyze the parsed user request.\n- Decide which specialized agents must execute the task.\n- Break the task into ordered execution steps.\n- Each step must specify:\n  - the agent name\n  - the goal of that step\n\nRules:\n- Only use agents from the provided registry.\n- Do NOT invent new agents.\n- Do NOT execute tools.\n- Do NOT ask the user questions.\n- Focus only on execution planning.\n- Keep the plan minimal and logically ordered.",
           "user": "Parsed request:\n{'intent': 'GetWeather', 'entities': ['Milano'], 'raw_text': 'Weather in milano?'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]",
-          "assistant": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve current weather data for Milan.\"}]}"
+          "assistant": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve current weather information for Milano.\"}]}"
         },
-        "parsed_output": {
+        "parsed": {
           "steps": [
             {
               "agent": "retrieval_agent",
-              "goal": "Retrieve current weather data for Milan."
+              "goal": "Retrieve current weather information for Milano."
             }
           ]
         }
       },
-      "state_updates": {
+      "state": {
         "plan": [
           {
             "agent": "retrieval_agent",
-            "goal": "Retrieve current weather data for Milan."
+            "goal": "Retrieve current weather information for Milano."
           }
         ],
         "current_step": 0,
         "awaiting_user": false
       },
-      "output": {
-        "updated_keys": [
-          "plan",
-          "current_step",
-          "awaiting_user"
-        ]
-      }
-    },
-    {
-      "step": 3,
+      "output": [
+        "plan",
+        "current_step",
+        "awaiting_user"
+      ]
+    }
+  },
+  {
+    "step": 3,
+    "type": "node",
+    "data": {
       "node": "retrieval_agent",
-      "label": "Retrieval Agent  [TODO: placeholder]",
       "ref": "ma_graph.retrieval_agent()  # passthrough",
-      "async": false,
       "input": {
         "type": "state",
-        "from_node": "supervisor_subgraph",
+        "from": "supervisor_subgraph",
         "keys": [
           "plan",
           "current_step",
           "awaiting_user"
         ]
       },
-      "process": {
-        "ref": "ma_graph.retrieval_agent()  # passthrough",
-        "type": "sync"
-      },
       "llm": null,
-      "state_updates": null,
-      "output": {
-        "passthrough": true
-      }
-    }
-  ],
-  "flow_summary": {
-    "flow": [
-      "START",
-      "chat_agent",
-      "supervisor_subgraph",
-      "retrieval_agent",
-      "END"
-    ],
-    "tokens": {
-      "input": 552,
-      "output": 42,
-      "total": 594
-    }
-  },
-  "chat_messages": [
-    {
-      "role": "user",
-      "content": "Weather in milano?",
-      "resume_interrupt": null
-    }
-  ],
-  "final_response": {
-    "final_message": null,
-    "retrieval_result": null
-  },
-  "llm_exchanges": {
-    "chat_agent": {
-      "messages": {
-        "system": null,
-        "user": "Weather in milano?",
-        "assistant": "{\"intent\":\"GetWeather\",\"entities\":[\"Milano\"],\"raw_text\":\"Weather in milano?\"}"
-      },
-      "parsed_output": {
-        "intent": "GetWeather",
-        "entities": [
-          "Milano"
-        ],
-        "raw_text": "Weather in milano?"
-      },
-      "tokens": {
-        "input": 103,
-        "output": 21,
-        "total": 124
-      }
-    },
-    "supervisor_subgraph": {
-      "messages": {
-        "system": "You are a high-level orchestration agent.\n\nYour task:\n- Analyze the parsed user request.\n- Decide which specialized agents must execute the task.\n- Break the task into ordered execution steps.\n- Each step must specify:\n  - the agent name\n  - the goal of that step\n\nRules:\n- Only use agents from the provided registry.\n- Do NOT invent new agents.\n- Do NOT execute tools.\n- Do NOT ask the user questions.\n- Focus only on execution planning.\n- Keep the plan minimal and logically ordered.",
-        "user": "Parsed request:\n{'intent': 'GetWeather', 'entities': ['Milano'], 'raw_text': 'Weather in milano?'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]",
-        "assistant": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve current weather data for Milan.\"}]}"
-      },
-      "parsed_output": {
-        "steps": [
-          {
-            "agent": "retrieval_agent",
-            "goal": "Retrieve current weather data for Milan."
-          }
-        ]
-      },
-      "tokens": {
-        "input": 449,
-        "output": 21,
-        "total": 470
-      }
+      "state": null,
+      "output": null
     }
   }
-}
+]
