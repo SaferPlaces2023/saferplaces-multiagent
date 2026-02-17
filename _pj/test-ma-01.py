@@ -214,6 +214,7 @@ for step_num, (node_name, ev) in enumerate(_node_trace, 1):
                 "output": meta.get("output_tokens", 0),
                 "total": meta.get("total_tokens", 0),
             },
+            "response_format": meta.get("response_format"),
             "input": {
                 "system": llm_input.get("system"),
                 "user": llm_input.get("user"),

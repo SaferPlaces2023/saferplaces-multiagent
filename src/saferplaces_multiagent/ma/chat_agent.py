@@ -1,4 +1,5 @@
 import json
+import os
 
 from typing import List, Optional
 from pydantic import BaseModel, Field
@@ -9,27 +10,20 @@ from ..common.utils import _base_llm
 from langchain_core.messages import HumanMessage
 
 
+# ---------------------------------------------------------------------------
+#  Load external prompts from prompts.json (same directory as this file)
+# ---------------------------------------------------------------------------
+_PROMPTS_PATH = os.path.join(os.path.dirname(__file__), "prompts.json")
+
+def _load_prompts():
+    with open(_PROMPTS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 class ParsedRequest(BaseModel):
     intent: str = Field(description="Main high-level intent")
     entities: List[str] = Field(default_factory=list, description="List of relevant entities")
     raw_text: str = Field(description="Original user input text")
-
-
-class Prompts:
-
-    # sys_standardize = '\n'.join((
-    #     "You convert user requests into a structured execution request. ",
-    #     "",
-    #     "Your job: ",
-    #     "- Extract the high-level intent. ",
-    #     "- Extract relevant entities. ",
-    #     "- Extract explicit parameters. ",
-    #     "- Determine if the request likely requires multiple execution steps. ",
-    #     "",
-    #     "Be precise and execution-oriented. ",
-    #     "Do not hallucinate parameters.",
-    # ))
-    pass
 
 
 class ChatAgent:
@@ -47,11 +41,15 @@ class ChatAgent:
         if not isinstance(state["messages"][-1], HumanMessage):
             return state
 
+        # Load prompts from external JSON (re-read each call so edits take effect)
+        prompts = _load_prompts().get("chat_agent", {})
+        sys_prompt = prompts.get("system")  # None when disabled
+
         try:
-            llm_messages = [
-                # {"role": "system", "content": Prompts.sys_standardize},
-                {"role": "user", "content": user_input}
-            ]
+            llm_messages = []
+            if sys_prompt:
+                llm_messages.append({"role": "system", "content": sys_prompt})
+            llm_messages.append({"role": "user", "content": user_input})
             result = self.llm.invoke(llm_messages)
             parsed: ParsedRequest = result["parsed"]
             raw_msg = result["raw"]  # AIMessage with response_metadata
@@ -64,12 +62,15 @@ class ChatAgent:
                     "input_tokens": usage.get("input_tokens", 0),
                     "output_tokens": usage.get("output_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
-                    "messages": {
-                        "system": None,  # system prompt disabled
+                    "response_format": ParsedRequest.model_json_schema(),
+                    "input": {
+                        "system": sys_prompt,
                         "user": user_input,
-                        "assistant": raw_msg.content,
                     },
-                    "parsed_output": parsed.model_dump(),
+                    "output": {
+                        "raw": raw_msg.content,
+                        "parsed": parsed.model_dump(),
+                    },
                 }
             }
         except Exception as e:

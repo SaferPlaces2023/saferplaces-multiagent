@@ -1,4 +1,5 @@
 import json
+import os
 
 from pydantic import BaseModel, Field
 from typing import List
@@ -7,6 +8,16 @@ from langgraph.graph import StateGraph, START, END
 
 from ..common.states import MABaseGraphState
 from ..common.utils import _base_llm
+
+
+# ---------------------------------------------------------------------------
+#  Load external prompts from prompts.json (same directory as this file)
+# ---------------------------------------------------------------------------
+_PROMPTS_PATH = os.path.join(os.path.dirname(__file__), "prompts.json")
+
+def _load_prompts():
+    with open(_PROMPTS_PATH, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 
@@ -75,34 +86,24 @@ class ExecutionPlan(BaseModel):
 
 
 class Prompts:
+    """Prompts loaded from external prompts.json at runtime."""
 
-    supervisor_prompt = '\n'.join((
-        "You are a high-level orchestration agent.",
-        "",
-        "Your task:",
-        "- Analyze the parsed user request.",
-        "- Decide which specialized agents must execute the task.",
-        "- Break the task into ordered execution steps.",
-        "- Each step must specify:",
-        "  - the agent name",
-        "  - the goal of that step",
-        "",
-        "Rules:",
-        "- Only use agents from the provided registry.",
-        "- Do NOT invent new agents.",
-        "- Do NOT execute tools.",
-        "- Do NOT ask the user questions.",
-        "- Focus only on execution planning.",
-        "- Keep the plan minimal and logically ordered.",
-    ))
+    @staticmethod
+    def supervisor_prompt():
+        prompts = _load_prompts().get("supervisor_agent", {})
+        return prompts.get("system", "")
 
-    planning_prompt = lambda parsed_request: '\n'.join((
-        "Parsed request:",
-        f"{parsed_request}",
-        "",
-        "Avaliable agents:"
-        f"{AGENT_REGISTRY}"
-    ))
+    @staticmethod
+    def planning_prompt(parsed_request):
+        prompts = _load_prompts().get("supervisor_agent", {})
+        template = prompts.get("user_template")
+        if template:
+            return template.format(
+                parsed_request=parsed_request,
+                agent_registry=AGENT_REGISTRY,
+            )
+        # Fallback if no template in JSON
+        return f"Parsed request:\n{parsed_request}\n\nAvaliable agents:{AGENT_REGISTRY}"
 
 
 class SupervisorAgent:
@@ -120,7 +121,7 @@ class SupervisorAgent:
 
         parsed_request = state["parsed_request"]
 
-        sys_prompt = Prompts.supervisor_prompt
+        sys_prompt = Prompts.supervisor_prompt()
         usr_prompt = Prompts.planning_prompt(parsed_request)
 
         result = self.llm.invoke([
@@ -139,12 +140,15 @@ class SupervisorAgent:
             "input_tokens": usage.get("input_tokens", 0),
             "output_tokens": usage.get("output_tokens", 0),
             "total_tokens": usage.get("total_tokens", 0),
-            "messages": {
+            "response_format": ExecutionPlan.model_json_schema(),
+            "input": {
                 "system": sys_prompt,
                 "user": usr_prompt,
-                "assistant": raw_msg.content,
             },
-            "parsed_output": response.model_dump(),
+            "output": {
+                "raw": raw_msg.content,
+                "parsed": response.model_dump(),
+            },
         }
         state["llm_metadata"] = llm_meta
 
