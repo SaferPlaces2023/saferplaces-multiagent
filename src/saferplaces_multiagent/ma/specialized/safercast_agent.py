@@ -87,6 +87,7 @@ class DataRetrieverAgent:
             "args": tool_args,
             "result": result
         }
+        state["current_step"] += 1 # Assume no errors (then fix this only if no errors)
 
         tool_response = ToolMessage(
             content=f"""Layer generated:

@@ -123,7 +123,7 @@ class SupervisorAgent:
             return state
 
         if state.get("plan") is not None and state.get("current_step") is not None:
-            state["current_step"] += 1
+            # state["current_step"] += 1
             print(f"[{AgentNames.SUPERVISOR_AGENT}] → Step {state['current_step']}/{len(state['plan'])}")
             return state
 
