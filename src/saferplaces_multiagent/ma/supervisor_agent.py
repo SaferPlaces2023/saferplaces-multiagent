@@ -120,15 +120,12 @@ class SupervisorAgent:
 
         parsed_request = state["parsed_request"]
 
+        sys_prompt = Prompts.supervisor_prompt
+        usr_prompt = Prompts.planning_prompt(parsed_request)
+
         result = self.llm.invoke([
-            {
-                "role": "system",
-                "content": Prompts.supervisor_prompt
-            },
-            {
-                "role": "user",
-                "content": Prompts.planning_prompt(parsed_request)
-            }
+            {"role": "system", "content": sys_prompt},
+            {"role": "user",   "content": usr_prompt},
         ])
         
         response: ExecutionPlan = result["parsed"]
@@ -142,7 +139,11 @@ class SupervisorAgent:
             "input_tokens": usage.get("input_tokens", 0),
             "output_tokens": usage.get("output_tokens", 0),
             "total_tokens": usage.get("total_tokens", 0),
-            "raw_response": raw_msg.content,
+            "messages": {
+                "system": sys_prompt,
+                "user": usr_prompt,
+                "assistant": raw_msg.content,
+            },
             "parsed_output": response.model_dump(),
         }
         state["llm_metadata"] = llm_meta

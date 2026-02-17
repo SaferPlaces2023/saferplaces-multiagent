@@ -48,10 +48,11 @@ class ChatAgent:
             return state
 
         try:
-            result = self.llm.invoke([
+            llm_messages = [
                 # {"role": "system", "content": Prompts.sys_standardize},
                 {"role": "user", "content": user_input}
-            ])
+            ]
+            result = self.llm.invoke(llm_messages)
             parsed: ParsedRequest = result["parsed"]
             raw_msg = result["raw"]  # AIMessage with response_metadata
             
@@ -63,7 +64,11 @@ class ChatAgent:
                     "input_tokens": usage.get("input_tokens", 0),
                     "output_tokens": usage.get("output_tokens", 0),
                     "total_tokens": usage.get("total_tokens", 0),
-                    "raw_response": raw_msg.content,
+                    "messages": {
+                        "system": None,  # system prompt disabled
+                        "user": user_input,
+                        "assistant": raw_msg.content,
+                    },
                     "parsed_output": parsed.model_dump(),
                 }
             }

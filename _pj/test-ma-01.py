@@ -20,11 +20,6 @@ thread_id = str(uuid.uuid4())
 GI = __GRAPH_REGISTRY__.register(thread_id=thread_id, user_id='tommaso', project_id='mao')
 
 prompt = 'Weather in milano?'
-print(f"\n{SEP}")
-print(f"  Session : {thread_id}")
-print(f"  User    : tommaso  |  Project : mao")
-print(f"  Prompt  : \"{prompt}\"")
-print(SEP)
 
 
 # =========================================================================
@@ -76,17 +71,53 @@ NODE_INFO = {
 
 
 # =========================================================================
-#  PIPELINE STEPS
+#  PIPELINE EXECUTION — collect data silently, print only status
 # =========================================================================
-print(f"\n{'PIPELINE STEPS':^80}")
-print(SEP)
-
 llm_metadata = state.get("llm_metadata", {})
-prev_output = {"messages": "[HumanMessage] user prompt"}  # initial input = the user message
+chat_json = GI.conversation_handler.chat2json(GI.conversation_events)
 
 total_input_tokens = 0
 total_output_tokens = 0
+warnings = []
 
+for step_num, (node_name, ev) in enumerate(_node_trace, 1):
+    info = NODE_INFO.get(node_name, {})
+    has_llm  = info.get("llm", False)
+    llm_key  = info.get("llm_key")
+    writes   = info.get("writes", [])
+
+    if has_llm and llm_key:
+        meta = llm_metadata.get(llm_key, {})
+        inp_t = meta.get("input_tokens", 0)
+        out_t = meta.get("output_tokens", 0)
+        if isinstance(inp_t, int): total_input_tokens  += inp_t
+        if isinstance(out_t, int): total_output_tokens += out_t
+        if meta.get("error"):
+            warnings.append(f"[WARN] {node_name}: LLM error -> {meta['error']}")
+
+    if not writes and node_name != _node_trace[0][0]:
+        warnings.append(f"[WARN] {node_name}: passthrough (no state changes)")
+
+flow = " -> ".join(["START"] + [t[0] for t in _node_trace] + ["END"])
+
+# Print compact status
+print(f"\n[OK] Pipeline completed: {len(_node_trace)} steps | {total_input_tokens + total_output_tokens} tokens")
+print(f"     {flow}")
+for w in warnings:
+    print(f"     {w}")
+
+
+# =========================================================================
+#  EXPORT JSON to _pj/result/
+# =========================================================================
+import os
+from datetime import datetime
+
+result_dir = os.path.join(os.path.dirname(__file__), "result")
+os.makedirs(result_dir, exist_ok=True)
+
+# Build the JSON structure mirroring the terminal output
+pipeline_steps = []
 for step_num, (node_name, ev) in enumerate(_node_trace, 1):
     info = NODE_INFO.get(node_name, {})
     label    = info.get("label", node_name)
@@ -96,115 +127,90 @@ for step_num, (node_name, ev) in enumerate(_node_trace, 1):
     llm_key  = info.get("llm_key")
     writes   = info.get("writes", [])
 
-    # --- Header ---
-    print(f"\n{step_num}. {label}")
-    print(f"   ref: {ref}")
-    print(f"   {SEP2}")
-
-    # --- INPUT ---
+    # Input
     if step_num == 1:
-        print(f"   INPUT    : user prompt -> \"{prompt}\"")
+        step_input = {"type": "user_prompt", "value": prompt}
     else:
         prev_node = _node_trace[step_num - 2][0]
         prev_info = NODE_INFO.get(prev_node, {})
         prev_writes = prev_info.get("writes", [])
-        if prev_writes:
-            print(f"   INPUT    : state from [{prev_node}] -> {', '.join(prev_writes)}")
-        else:
-            print(f"   INPUT    : state from [{prev_node}] (unchanged)")
+        step_input = {"type": "state", "from_node": prev_node, "keys": prev_writes if prev_writes else None}
 
-    # --- PROCESS ---
-    call_type = "sync" if not is_async else "async"
-    print(f"   PROCESS  : {ref}  ({call_type})")
-
-    # --- LLM CALL ---
+    # LLM info
+    llm_info = None
     if has_llm and llm_key:
         meta = llm_metadata.get(llm_key, {})
-        model  = meta.get("model", "gpt-4o-mini")
-        inp_t  = meta.get("input_tokens", "?")
-        out_t  = meta.get("output_tokens", "?")
-        tot_t  = meta.get("total_tokens", "?")
-        if isinstance(inp_t, int): total_input_tokens  += inp_t
-        if isinstance(out_t, int): total_output_tokens += out_t
-        print(f"   LLM      : ** {model} **")
-        print(f"              input_tokens={inp_t}  output_tokens={out_t}  total={tot_t}")
-    else:
-        print(f"   LLM      : (none)")
+        llm_info = {
+            "model": meta.get("model", "gpt-4o-mini"),
+            "input_tokens": meta.get("input_tokens", 0),
+            "output_tokens": meta.get("output_tokens", 0),
+            "total_tokens": meta.get("total_tokens", 0),
+            "messages": meta.get("messages", {}),
+            "parsed_output": meta.get("parsed_output"),
+        }
 
-    # --- STATE UPDATES ---
+    # State updates
+    state_updates = {}
     if writes:
-        print(f"   STATE    :")
         for key in writes:
             val = ev.get(key, state.get(key))
-            val_str = str(val)
-            if len(val_str) > 120:
-                val_str = val_str[:120] + "..."
-            print(f"              {key} = {val_str}")
-    else:
-        print(f"   STATE    : (no changes)")
+            state_updates[key] = val
 
-    # --- OUTPUT ---
-    if writes:
-        print(f"   OUTPUT   : updated -> {', '.join(writes)}")
-    else:
-        print(f"   OUTPUT   : passthrough (state unchanged)")
+    pipeline_steps.append({
+        "step": step_num,
+        "node": node_name,
+        "label": label,
+        "ref": ref,
+        "async": is_async,
+        "input": step_input,
+        "process": {"ref": ref, "type": "sync" if not is_async else "async"},
+        "llm": llm_info,
+        "state_updates": state_updates if state_updates else None,
+        "output": {"updated_keys": writes} if writes else {"passthrough": True},
+    })
 
+result_json = {
+    "session": {
+        "thread_id": thread_id,
+        "user_id": "tommaso",
+        "project_id": "mao",
+        "prompt": prompt,
+        "timestamp": datetime.now(tz=__import__('datetime').timezone.utc).isoformat(),
+    },
+    "pipeline_steps": pipeline_steps,
+    "flow_summary": {
+        "flow": ["START"] + [t[0] for t in _node_trace] + ["END"],
+        "tokens": {
+            "input": total_input_tokens,
+            "output": total_output_tokens,
+            "total": total_input_tokens + total_output_tokens,
+        },
+    },
+    "chat_messages": chat_json,
+    "final_response": {
+        "final_message": state.get("final_message"),
+        "retrieval_result": state.get("retrieval_result"),
+    },
+    "llm_exchanges": {},
+}
 
-# =========================================================================
-#  FLOW SUMMARY
-# =========================================================================
-print(f"\n{SEP}")
-flow = " -> ".join([t[0] for t in _node_trace])
-print(f"  FLOW : START -> {flow} -> END")
-
-# Token totals
-if total_input_tokens or total_output_tokens:
-    print(f"  TOKENS : input={total_input_tokens}  output={total_output_tokens}  total={total_input_tokens + total_output_tokens}")
-
-# Conversation (should be clean now)
-chat_json = GI.conversation_handler.chat2json(GI.conversation_events)
-print(f"  CHAT MESSAGES : {len(chat_json)}")
-for msg in chat_json:
-    role = msg.get('role', '?').upper()
-    content = str(msg.get('content', ''))[:120]
-    print(f"    [{role}] {content}")
-
-# Show final response from retrieval_agent
-final_message = state.get('final_message')
-retrieval_result = state.get('retrieval_result')
-if final_message:
-    print(f"\n{'FINAL RESPONSE':^80}")
-    print(f"{SEP2}")
-    print(final_message)
-    if retrieval_result:
-        print(f"Result: {retrieval_result}")
-
-# Show LLM responses (raw + parsed)
-print(f"\n{'LLM RESPONSES':^80}")
-print(SEP2)
+# LLM exchanges per node
 for node_name, info in NODE_INFO.items():
     if info.get('llm') and info.get('llm_key'):
         meta = llm_metadata.get(info['llm_key'], {})
-        raw_resp = meta.get('raw_response', None)
-        parsed_out = meta.get('parsed_output', None)
+        result_json["llm_exchanges"][node_name] = {
+            "messages": meta.get("messages", {}),
+            "parsed_output": meta.get("parsed_output"),
+            "tokens": {
+                "input": meta.get("input_tokens", 0),
+                "output": meta.get("output_tokens", 0),
+                "total": meta.get("total_tokens", 0),
+            },
+        }
 
-        print(f"\n[{node_name}]")
-        # Raw LLM response (the actual text the model generated)
-        if raw_resp:
-            print(f"  RAW LLM response:")
-            print(f"    {str(raw_resp)[:500]}")
-        else:
-            print(f"  RAW LLM response: (empty or function_call only)")
+# Write JSON file (overwrite, named after test script)
+json_path = os.path.join(result_dir, "test-ma-01.json")
+with open(json_path, "w", encoding="utf-8") as f:
+    json.dump(result_json, f, indent=2, ensure_ascii=False, default=str)
 
-        # Parsed structured output (Pydantic extraction)
-        if parsed_out:
-            print(f"  Parsed (structured):")
-            if isinstance(parsed_out, dict):
-                for k, v in parsed_out.items():
-                    print(f"    {k}: {str(v)[:120]}")
-            else:
-                print(f"    {str(parsed_out)[:300]}")
-
-print(SEP)
-
-
+print(f"[OK] JSON exported -> {os.path.relpath(json_path)}")
