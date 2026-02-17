@@ -3,11 +3,11 @@
     "step": 0,
     "type": "session",
     "data": {
-      "thread_id": "00d6d8b7-a36a-450c-9270-a0d2651ad7f2",
+      "thread_id": "1c0bb0ea-a2e9-425c-9552-56b2ac049d6e",
       "user_id": "tommaso",
       "project_id": "mao",
       "prompt": "What is the flood risk in Venice?",
-      "timestamp": "2026-02-17T09:22:04.561862+00:00"
+      "timestamp": "2026-02-17T09:54:15.450628+00:00"
     }
   },
   {
@@ -23,30 +23,75 @@
       "llm_call": {
         "model": "gpt-4o-mini-2024-07-18",
         "token_usage": {
-          "input": 106,
-          "output": 33,
-          "total": 139
+          "input": 272,
+          "output": 25,
+          "total": 297
         },
-        "prompt_messages": {
-          "system": null,
-          "user": "What is the flood risk in Venice?",
-          "assistant": "{\"intent\":\"Inquire about flood risk in Venice\",\"entities\":[\"Venice\",\"flood risk\"],\"raw_text\":\"What is the flood risk in Venice?\"}"
-        },
-        "structured_output": {
-          "intent": "Inquire about flood risk in Venice",
-          "entities": [
-            "Venice",
-            "flood risk"
+        "response_format": {
+          "$defs": {
+            "IntentEnum": {
+              "enum": [
+                "GetCurrentWeather",
+                "GetWeatherForecast",
+                "GetElevation",
+                "BuildDigitalTwin",
+                "RunFloodSimulation",
+                "GetFloodRisk",
+                "GetAffectedBuildings",
+                "GetRainfallData",
+                "PerformGeospatialOperation",
+                "GeneralQuery"
+              ],
+              "title": "IntentEnum",
+              "type": "string"
+            }
+          },
+          "properties": {
+            "intent": {
+              "$ref": "#/$defs/IntentEnum",
+              "description": "Main high-level intent (pick from allowed values)"
+            },
+            "entities": {
+              "description": "List of relevant entities",
+              "items": {
+                "type": "string"
+              },
+              "title": "Entities",
+              "type": "array"
+            },
+            "raw_text": {
+              "description": "Original user input text",
+              "title": "Raw Text",
+              "type": "string"
+            }
+          },
+          "required": [
+            "intent",
+            "raw_text"
           ],
-          "raw_text": "What is the flood risk in Venice?"
+          "title": "ParsedRequest",
+          "type": "object"
+        },
+        "input": {
+          "system": "You convert user requests into a structured execution request.\n\nYour job:\n- Extract the high-level intent from the allowed list.\n- Extract relevant entities.\n- Extract explicit parameters.\n- Determine if the request likely requires multiple execution steps.\n\nBe precise and execution-oriented.\nDo not hallucinate parameters.",
+          "user": "What is the flood risk in Venice?"
+        },
+        "output": {
+          "raw": "{\"intent\":\"GetFloodRisk\",\"entities\":[\"Venice\"],\"raw_text\":\"What is the flood risk in Venice?\"}",
+          "parsed": {
+            "intent": "GetFloodRisk",
+            "entities": [
+              "Venice"
+            ],
+            "raw_text": "What is the flood risk in Venice?"
+          }
         }
       },
       "state_updates": {
         "parsed_request": {
-          "intent": "Inquire about flood risk in Venice",
+          "intent": "GetFloodRisk",
           "entities": [
-            "Venice",
-            "flood risk"
+            "Venice"
           ],
           "raw_text": "What is the flood risk in Venice?"
         }
@@ -72,37 +117,85 @@
       "llm_call": {
         "model": "gpt-4o-mini-2024-07-18",
         "token_usage": {
-          "input": 462,
-          "output": 53,
-          "total": 515
+          "input": 453,
+          "output": 71,
+          "total": 524
         },
-        "prompt_messages": {
-          "system": "You are a high-level orchestration agent.\n\nYour task:\n- Analyze the parsed user request.\n- Decide which specialized agents must execute the task.\n- Break the task into ordered execution steps.\n- Each step must specify:\n  - the agent name\n  - the goal of that step\n\nRules:\n- Only use agents from the provided registry.\n- Do NOT invent new agents.\n- Do NOT execute tools.\n- Do NOT ask the user questions.\n- Focus only on execution planning.\n- Keep the plan minimal and logically ordered.",
-          "user": "Parsed request:\n{'intent': 'Inquire about flood risk in Venice', 'entities': ['Venice', 'flood risk'], 'raw_text': 'What is the flood risk in Venice?'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]",
-          "assistant": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve current flood risk data for Venice from relevant third-party sources.\"},{\"agent\":\"simulations_agent\",\"goal\":\"Run simulation models to assess the potential impact of floods in Venice based on retrieved data.\"}]}"
-        },
-        "structured_output": {
-          "steps": [
-            {
-              "agent": "retrieval_agent",
-              "goal": "Retrieve current flood risk data for Venice from relevant third-party sources."
-            },
-            {
-              "agent": "simulations_agent",
-              "goal": "Run simulation models to assess the potential impact of floods in Venice based on retrieved data."
+        "response_format": {
+          "$defs": {
+            "PlanStep": {
+              "properties": {
+                "agent": {
+                  "description": "Name of the specialized agent to execute this step",
+                  "title": "Agent",
+                  "type": "string"
+                },
+                "goal": {
+                  "description": "High-level description of what this step should accomplish",
+                  "title": "Goal",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "agent",
+                "goal"
+              ],
+              "title": "PlanStep",
+              "type": "object"
             }
-          ]
+          },
+          "properties": {
+            "steps": {
+              "items": {
+                "$ref": "#/$defs/PlanStep"
+              },
+              "title": "Steps",
+              "type": "array"
+            }
+          },
+          "required": [
+            "steps"
+          ],
+          "title": "ExecutionPlan",
+          "type": "object"
+        },
+        "input": {
+          "system": "You are a high-level orchestration agent.\n\nYour task:\n- Analyze the parsed user request.\n- Decide which specialized agents must execute the task.\n- Break the task into ordered execution steps.\n- Each step must specify:\n  - the agent name\n  - the goal of that step\n\nRules:\n- Only use agents from the provided registry.\n- Do NOT invent new agents.\n- Do NOT execute tools.\n- Do NOT ask the user questions.\n- Focus only on execution planning.\n- Keep the plan minimal and logically ordered.",
+          "user": "Parsed request:\n{'intent': 'GetFloodRisk', 'entities': ['Venice'], 'raw_text': 'What is the flood risk in Venice?'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]"
+        },
+        "output": {
+          "raw": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve the current flood risk data for Venice.\"},{\"agent\":\"simulations_agent\",\"goal\":\"Run simulations to predict the impact of potential flooding scenarios in Venice.\"},{\"agent\":\"operational_agent\",\"goal\":\"Analyze the results to determine specific risk levels and areas most affected by flooding in Venice.\"}]}",
+          "parsed": {
+            "steps": [
+              {
+                "agent": "retrieval_agent",
+                "goal": "Retrieve the current flood risk data for Venice."
+              },
+              {
+                "agent": "simulations_agent",
+                "goal": "Run simulations to predict the impact of potential flooding scenarios in Venice."
+              },
+              {
+                "agent": "operational_agent",
+                "goal": "Analyze the results to determine specific risk levels and areas most affected by flooding in Venice."
+              }
+            ]
+          }
         }
       },
       "state_updates": {
         "plan": [
           {
             "agent": "retrieval_agent",
-            "goal": "Retrieve current flood risk data for Venice from relevant third-party sources."
+            "goal": "Retrieve the current flood risk data for Venice."
           },
           {
             "agent": "simulations_agent",
-            "goal": "Run simulation models to assess the potential impact of floods in Venice based on retrieved data."
+            "goal": "Run simulations to predict the impact of potential flooding scenarios in Venice."
+          },
+          {
+            "agent": "operational_agent",
+            "goal": "Analyze the results to determine specific risk levels and areas most affected by flooding in Venice."
           }
         ],
         "current_step": 0,

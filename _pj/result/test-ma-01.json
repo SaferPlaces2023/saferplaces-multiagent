@@ -3,11 +3,11 @@
     "step": 0,
     "type": "session",
     "data": {
-      "thread_id": "04482583-8245-46f3-857a-e909a810c598",
+      "thread_id": "ded01600-3349-475c-9d06-6348f86a50bc",
       "user_id": "tommaso",
       "project_id": "mao",
       "prompt": "Weather in milano?",
-      "timestamp": "2026-02-17T09:49:14.007445+00:00"
+      "timestamp": "2026-02-17T09:54:32.948145+00:00"
     }
   },
   {
@@ -23,16 +23,33 @@
       "llm_call": {
         "model": "gpt-4o-mini-2024-07-18",
         "token_usage": {
-          "input": 156,
-          "output": 20,
-          "total": 176
+          "input": 269,
+          "output": 21,
+          "total": 290
         },
         "response_format": {
+          "$defs": {
+            "IntentEnum": {
+              "enum": [
+                "GetCurrentWeather",
+                "GetWeatherForecast",
+                "GetElevation",
+                "BuildDigitalTwin",
+                "RunFloodSimulation",
+                "GetFloodRisk",
+                "GetAffectedBuildings",
+                "GetRainfallData",
+                "PerformGeospatialOperation",
+                "GeneralQuery"
+              ],
+              "title": "IntentEnum",
+              "type": "string"
+            }
+          },
           "properties": {
             "intent": {
-              "description": "Main high-level intent",
-              "title": "Intent",
-              "type": "string"
+              "$ref": "#/$defs/IntentEnum",
+              "description": "Main high-level intent (pick from allowed values)"
             },
             "entities": {
               "description": "List of relevant entities",
@@ -56,15 +73,15 @@
           "type": "object"
         },
         "input": {
-          "system": "You convert user requests into a structured execution request.\n\nYour job:\n- Extract the high-level intent.\n- Extract relevant entities.\n- Extract explicit parameters.\n- Determine if the request likely requires multiple execution steps.\n\nBe precise and execution-oriented.\nDo not hallucinate parameters.",
+          "system": "You convert user requests into a structured execution request.\n\nYour job:\n- Extract the high-level intent from the allowed list.\n- Extract relevant entities.\n- Extract explicit parameters.\n- Determine if the request likely requires multiple execution steps.\n\nBe precise and execution-oriented.\nDo not hallucinate parameters.",
           "user": "Weather in milano?"
         },
         "output": {
-          "raw": "{\"intent\":\"Check weather\",\"entities\":[\"Milano\"],\"raw_text\":\"Weather in milano\"}",
+          "raw": "{\"intent\":\"GetCurrentWeather\",\"entities\":[\"milano\"],\"raw_text\":\"Weather in milano\"}",
           "parsed": {
-            "intent": "Check weather",
+            "intent": "GetCurrentWeather",
             "entities": [
-              "Milano"
+              "milano"
             ],
             "raw_text": "Weather in milano"
           }
@@ -72,9 +89,9 @@
       },
       "state_updates": {
         "parsed_request": {
-          "intent": "Check weather",
+          "intent": "GetCurrentWeather",
           "entities": [
-            "Milano"
+            "milano"
           ],
           "raw_text": "Weather in milano"
         }
@@ -100,9 +117,9 @@
       "llm_call": {
         "model": "gpt-4o-mini-2024-07-18",
         "token_usage": {
-          "input": 448,
+          "input": 449,
           "output": 22,
-          "total": 470
+          "total": 471
         },
         "response_format": {
           "$defs": {
@@ -144,7 +161,7 @@
         },
         "input": {
           "system": "You are a high-level orchestration agent.\n\nYour task:\n- Analyze the parsed user request.\n- Decide which specialized agents must execute the task.\n- Break the task into ordered execution steps.\n- Each step must specify:\n  - the agent name\n  - the goal of that step\n\nRules:\n- Only use agents from the provided registry.\n- Do NOT invent new agents.\n- Do NOT execute tools.\n- Do NOT ask the user questions.\n- Focus only on execution planning.\n- Keep the plan minimal and logically ordered.",
-          "user": "Parsed request:\n{'intent': 'Check weather', 'entities': ['Milano'], 'raw_text': 'Weather in milano'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]"
+          "user": "Parsed request:\n{'intent': 'GetCurrentWeather', 'entities': ['milano'], 'raw_text': 'Weather in milano'}\n\nAvaliable agents:[{'name': 'digital_twin_agent', 'description': 'Build a geospatial digital twin.', 'examples': ['Elevation in Milan', 'Twin for Rome', 'Activate area in Paris']}, {'name': 'simulations_agent', 'description': 'Run simulation models', 'examples': ['Simulate 100mm of rain', 'Count how the buildings were affected by flood']}, {'name': 'retrieval_agent', 'description': 'Retrieve data from third-part provider.', 'examples': ['How is the current temperature in Milan?', 'Get rainfall value for next 3 hours']}, {'name': 'operational_agent', 'description': 'Perform a geospatial operation between layers.', 'examples': ['Cut flood map where its level is above 1 meter.', 'Get buildings that are in 100 meters radious from river network', 'Which is the average value of water depth in a bounding box']}]"
         },
         "output": {
           "raw": "{\"steps\":[{\"agent\":\"retrieval_agent\",\"goal\":\"Retrieve the current weather data for Milan.\"}]}",
