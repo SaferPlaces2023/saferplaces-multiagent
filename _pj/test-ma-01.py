@@ -1,3 +1,4 @@
+import argparse
 import json
 import uuid
 from pprint import pprint
@@ -14,12 +15,66 @@ SEP2 = "-" * 60
 
 
 # =========================================================================
+#  PROMPT CATALOG — add new test phrases here
+# =========================================================================
+PROMPTS = {
+    "weather":      "Weather in milano?",
+    "elevation":    "What is the elevation of Rome?",
+    "twin":         "Build a digital twin for Paris",
+    "rain":         "Simulate 100mm of rain in Berlin",
+    "buildings":    "Count how many buildings are affected by flood in London",
+    "temperature":  "What is the current temperature in New York?",
+    "forecast":     "Get rainfall forecast for the next 3 hours in Tokyo",
+}
+
+DEFAULT_PROMPT_KEY = "weather"
+
+
+# =========================================================================
+#  CLI ARGUMENT PARSING
+# =========================================================================
+parser = argparse.ArgumentParser(
+    description="Run a single multiagent test prompt.",
+    formatter_class=argparse.RawTextHelpFormatter,
+)
+parser.add_argument(
+    "prompt_key",
+    nargs="?",
+    default=DEFAULT_PROMPT_KEY,
+    choices=list(PROMPTS.keys()),
+    help="Key of the prompt to test (default: %(default)s).\n"
+         "Available:\n" + "\n".join(f"  {k:14s} -> {v}" for k, v in PROMPTS.items()),
+)
+parser.add_argument(
+    "--custom",
+    type=str,
+    default=None,
+    help="Use a custom prompt string instead of one from the catalog.",
+)
+parser.add_argument(
+    "--list", "-l",
+    action="store_true",
+    dest="list_prompts",
+    help="List all available prompt keys and exit.",
+)
+args = parser.parse_args()
+
+if args.list_prompts:
+    print("\nAvailable prompt keys:")
+    for k, v in PROMPTS.items():
+        marker = " (default)" if k == DEFAULT_PROMPT_KEY else ""
+        print(f"  {k:14s} -> {v}{marker}")
+    raise SystemExit(0)
+
+
+# =========================================================================
 #  SESSION SETUP
 # =========================================================================
 thread_id = str(uuid.uuid4())
 GI = __GRAPH_REGISTRY__.register(thread_id=thread_id, user_id='tommaso', project_id='mao')
 
-prompt = 'Weather in milano?'
+prompt = args.custom if args.custom else PROMPTS[args.prompt_key]
+print(f"[INFO] Prompt ({args.prompt_key if not args.custom else 'custom'}): {prompt}")
 
 
 # =========================================================================
