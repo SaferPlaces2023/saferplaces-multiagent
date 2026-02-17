@@ -13,6 +13,7 @@ from .ma.specialized.safercast_agent import DataRetrieverAgent
 
 def build_supervisor_subgraph():
     """Build the supervisor subgraph with planning and routing logic."""
+    print(f"[Graph] Building supervisor subgraph...")
     supervisor_builder = StateGraph(MABaseGraphState)
     
     supervisor_agent = SupervisorAgent()
@@ -29,6 +30,7 @@ def build_supervisor_subgraph():
 
 def build_multiagent_graph():
     """Build the main multi-agent graph with all nodes and edges."""
+    print(f"[Graph] Building multiagent graph...")
     graph_builder = StateGraph(MABaseGraphState)
     
     # Initialize agents
@@ -63,7 +65,9 @@ def build_multiagent_graph():
     # Final edge
     graph_builder.add_edge(NodeNames.FINAL_RESPONDER, END)
     
-    return graph_builder.compile(checkpointer=InMemorySaver())
+    compiled_graph = graph_builder.compile(checkpointer=InMemorySaver())
+    print(f"[Graph] ✓ Multiagent graph ready")
+    return compiled_graph
 
 
 # Build and export the graph

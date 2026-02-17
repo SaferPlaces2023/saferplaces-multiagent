@@ -54,8 +54,10 @@ class FinalResponder:
         return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        print(f"[{NodeNames.FINAL_RESPONDER}] → Generating response...")
 
         invoke_messages = [
+            *state["messages"],
             SystemMessage(content=Prompts.FINAL_RESPONSE_PROMPT),
             
             # AIMessage(content=Prompts.STRUCTURED_FINAL_CONTEXT(state)),
@@ -65,4 +67,6 @@ class FinalResponder:
         response = self.llm.invoke(invoke_messages)
 
         state["messages"] = [AIMessage(content=response.content)]
+
+        print(f"[{NodeNames.FINAL_RESPONDER}] ✓ Response ready")
         return state

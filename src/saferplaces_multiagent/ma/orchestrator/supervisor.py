@@ -69,9 +69,10 @@ class Prompts:
         "",
         "Your task:",
         "- Analyze the parsed user request.",
-        "- Decide which specialized agents must execute the task.",
-        "- Break the task into ordered execution steps.",
-        "- Each step must specify:",
+        "- Decide if specialized agents are needed to execute the task.",
+        "- If agents are needed, break the task into ordered execution steps.",
+        "- If the request is a general question or doesn't require actions, return an empty plan.",
+        "- Each step (if any) must specify:",
         "  - the agent name",
         "  - the goal of that step",
         "",
@@ -82,6 +83,7 @@ class Prompts:
         "- Do NOT ask the user questions.",
         "- Focus only on execution planning.",
         "- Keep the plan minimal and logically ordered.",
+        "- Empty plan is valid for informational queries.",
     ))
 
     PLANNING_PROMPT = staticmethod(lambda parsed_request: '\n'.join((
@@ -115,12 +117,14 @@ class SupervisorAgent:
         return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        print(f"[{AgentNames.SUPERVISOR_AGENT}] → Planning...")
 
         if state.get("awaiting_user"):
             return state
 
         if state.get("plan") is not None and state.get("current_step") is not None:
             state["current_step"] += 1
+            print(f"[{AgentNames.SUPERVISOR_AGENT}] → Step {state['current_step']}/{len(state['plan'])}")
             return state
 
         if "parsed_request" not in state:
@@ -144,6 +148,11 @@ class SupervisorAgent:
         state["plan"] = validated_steps
         state["current_step"] = 0
         state["awaiting_user"] = False
+        
+        if len(validated_steps) > 0:
+            print(f"[{AgentNames.SUPERVISOR_AGENT}] ✓ Plan: {len(validated_steps)} steps")
+        else:
+            print(f"[{AgentNames.SUPERVISOR_AGENT}] ✓ No action needed (general query)")
 
         return state
     
@@ -173,8 +182,14 @@ class SupervisorRouter:
             if step is not None and step < len(plan):
                 return plan[step]["agent"]
 
+            state['plan'] = list()
+            state['current_step'] = None
+            state['parsed_request'] = dict()
+            state['tool_results'] = dict()
             return NodeNames.FINAL_RESPONDER
         
-        state['supervisor_next_node'] = supervisor_next_node(state)
+        next_node = supervisor_next_node(state)
+        state['supervisor_next_node'] = next_node
+        print(f"[{NodeNames.SUPERVISOR_ROUTER}] → Next: {next_node}")
         
         return state

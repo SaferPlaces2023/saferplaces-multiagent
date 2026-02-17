@@ -25,6 +25,9 @@ from datetime import timezone
 
 from langchain_core.tools import BaseTool
 
+from . import _validators as validators
+from . import _inferrers as inferrers
+
 
 # ---- Product enum (allowed values) ----
 DPCProductCode = Literal[
@@ -169,40 +172,6 @@ class DPCRetrieverSchema(BaseModel):
         examples=[True],
     )
 
-    # # ---- Normalization & Validation ----
-    # @model_validator(mode="after")
-    # def _normalize_and_validate(self):
-    #     # Build bbox from lat/long ranges if not explicitly provided
-    #     if self.bbox is None and self.lat_range and self.long_range:
-    #         if len(self.lat_range) == 2 and len(self.long_range) == 2:
-    #             lat_min, lat_max = self.lat_range
-    #             lon_min, lon_max = self.long_range
-    #             self.bbox = base_models.BBox(west=lon_min, south=lat_min, east=lon_max, north=lat_max)
-
-    #     if self.bbox is None:
-    #         raise ValueError("You must provide either `bbox` or both `lat_range` and `long_range`.")
-
-    #     # Build time_start/time_end from time_range if needed
-    #     if (self.time_start is None or self.time_end is None) and self.time_range:
-    #         if len(self.time_range) == 2:
-    #             self.time_start, self.time_end = self.time_range
-
-    #     # Validate timestamps
-    #     if self.time_start and self.time_end:
-    #         try:
-    #             ts = self.time_start.replace("Z", "+00:00")
-    #             te = self.time_end.replace("Z", "+00:00")
-    #             dt_start = datetime.datetime.fromisoformat(ts).replace(tzinfo=None)
-    #             dt_end = datetime.datetime.fromisoformat(te).replace(tzinfo=None)
-    #         except Exception as e:
-    #             raise ValueError(f"Invalid ISO8601 timestamp in time_start/time_end: {e}")
-
-    #         if dt_end <= dt_start:
-    #             raise ValueError("`time_end` must be greater than `time_start`.")
-
-    #     return self
-
-
 
 class DPCRetrieverTool(BaseTool):
     """
@@ -254,104 +223,47 @@ class DPCRetrieverTool(BaseTool):
             args_schema=DPCRetrieverSchema,
             **kwargs
         )
-        
-        # self.args_validation_rules = self._set_args_validation_rules()
-        # self.args_infer_rules = self._set_args_inference_rules()
-        
-        # self.execution_confirmed = False
-        # self.output_confirmed = True
 
-
-    # DOC: Validation rules ( i.e.: valid init and lead time ... ) 
     def _set_args_validation_rules(self) -> dict:
+        """Validation rules for tool arguments."""
+        now = datetime.datetime.now(tz=timezone.utc)
+        
         return {
-            'product': [
-                lambda **ka: f"Invalid product name: {ka['product']}. It should be one of [{', '.join(DPCProductCodeValues)}]."
-                    if ka['product'] not in DPCProductCodeValues else None
-            ],
-            'bbox': [
-                lambda **ka: f"Invalid bbox: {ka['bbox']}. It should be inside the DPC bounding box {DPCBoundingBox}."
-                    if ka['bbox'].west < DPCBoundingBox['west'] or ka['bbox'].south < DPCBoundingBox['south'] or
-                       ka['bbox'].east > DPCBoundingBox['east'] or ka['bbox'].north > DPCBoundingBox['north'] 
-                       else None,
-            ],            
+            'product': [validators.value_in_list('product', DPCProductCodeValues)],
+            'bbox': [validators.bbox_inside('bbox', DPCBoundingBox)],
             'time_start': [
-                lambda **ka: f"Invalid time_start: {ka['time_start']}. It should be inside last 7 days."
-                    if ka['time_start'] and datetime.datetime.fromisoformat(ka['time_start']).replace(tzinfo=timezone.utc) < (datetime.datetime.now(tz=timezone.utc) - datetime.timedelta(days=7)) else None,
-                lambda **ka: f"Invalid time_start: {ka['time_start']}. It should be before current time."
-                    if ka['time_start'] and datetime.datetime.fromisoformat(ka['time_start']).replace(tzinfo=timezone.utc) > datetime.datetime.now(tz=timezone.utc) else None,
+                validators.time_within_days('time_start', 7),
+                validators.time_before('time_start', now),
             ],
             'time_end': [
-                lambda **ka: f"Invalid time_end: {ka['time_end']}. It should be inside last 7 days."
-                    if ka['time_end'] and datetime.datetime.fromisoformat(ka['time_end']).replace(tzinfo=timezone.utc) < (datetime.datetime.now(tz=timezone.utc) - datetime.timedelta(days=7)) else None,
-                lambda **ka: f"Invalid time_end: {ka['time_end']}. It should be after time_start."
-                    if ka['time_start'] and ka['time_end'] and datetime.datetime.fromisoformat(ka['time_end']).replace(tzinfo=timezone.utc) <= datetime.datetime.fromisoformat(ka['time_start']).replace(tzinfo=timezone.utc) else None,
-                lambda **ka: f"Invalid time_end: {ka['time_end']}. It should be before current time."
-                    if ka['time_end'] and datetime.datetime.fromisoformat(ka['time_end']).replace(tzinfo=timezone.utc) > datetime.datetime.now(tz=timezone.utc) else None,
+                validators.time_within_days('time_end', 7),
+                validators.time_after('time_end', 'time_start'),
+                validators.time_before('time_end', now),
             ],
         }
     
 
-    # DOC: Inference rules ( i.e.: from location name to bbox ... )
     def _set_args_inference_rules(self) -> dict:
+        """Inference rules for tool arguments."""
+        DPC_DELAY_MINUTES = 10  # DPC data has 10-minute delay
         
-        def infer_time_range(**kwargs):
-            if kwargs.get('time_start', None) is not None and kwargs.get('time_end', None) is not None:
-                # DOC: both time_start and time_end are provided, no inference needed
-                return None
-            time_range = kwargs.get('time_range', None)
-            now = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
-            if time_range is None:
-                # DOC: default previous hour to now
-                now = datetime.datetime.now(tz=datetime.timezone.utc).replace(minute=0, second=0, microsecond=0, tzinfo=None)
-                time_range = [
-                    now.replace(minute=0, second=0) - relativedelta.relativedelta(hours=1),
-                    now.replace(minute=0, second=0)
-                ]
-            else:
-                time_range = [datetime.datetime.fromisoformat(t).replace(tzinfo=None) for t in time_range]
-            # DOC: consider DPC delay 10 min on time_end
-            if time_range[-1] > now - datetime.timedelta(minutes=10):
-                time_range[-1] = now - datetime.timedelta(minutes=10)
-            return [ time_range[0].replace(tzinfo=None).isoformat(), time_range[1].replace(tzinfo=None).isoformat() ]
-        
-        def infer_time_start(**kwargs):
-            time_start = kwargs.get('time_start', None)
-            now = datetime.datetime.now(tz=datetime .timezone.utc).replace(tzinfo=None)
-            if time_start is None:
-                # DOC: infer from time_range or default to 1 hour before now
-                time_start = kwargs.get('time_range', [None,None])[0] or now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
-            else:
-                time_start = datetime.datetime.fromisoformat(time_start).replace(tzinfo=None)
-            if time_start > now - datetime.timedelta(minutes=10):
-                time_start = now - datetime.timedelta(minutes=10)
-            return time_start.isoformat()
-        
-        def infer_time_end(**kwargs):
-            time_end = kwargs.get('time_end', None)
-            now = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
-            if time_end is None:
-                # DOC: infer from time_range or default to now
-                time_end = kwargs.get('time_range', [None,None])[1] or now.replace(minute=0, second=0, microsecond=0, tzinfo=None)
-            else:
-                time_end = datetime.datetime.fromisoformat(time_end).replace(tzinfo=None)
-            if time_end > now - datetime.timedelta(minutes=10):
-                time_end = now - datetime.timedelta(minutes=10)
-            return time_end.isoformat()
-
         def infer_bucket_destination(**kwargs):
-            """
-            Infer the S3 bucket destination based on user ID and project ID.
-            """
             return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/dpc-out"
-                  
-        infer_rules = {
-            'time_range': infer_time_range,
-            'time_start': infer_time_start,
-            'time_end': infer_time_end,
+        
+        return {
+            'time_range': inferrers.infer_time_range(
+                default_hours_back=1,
+                delay_minutes=DPC_DELAY_MINUTES
+            ),
+            'time_start': inferrers.infer_time_start(
+                default_hours_back=1,
+                delay_minutes=DPC_DELAY_MINUTES
+            ),
+            'time_end': inferrers.infer_time_end(
+                delay_minutes=DPC_DELAY_MINUTES
+            ),
             'bucket_destination': infer_bucket_destination,
         }
-        return infer_rules
     
 
     # DOC: Execute the tool → Build notebook, write it to a file and return the path to the notebook and the zarr output file
@@ -472,12 +384,6 @@ class DPCRetrieverTool(BaseTool):
             }
         
         return tool_response
-
-    
-    # DOC: Back to a consisent state
-    def _on_tool_end(self):
-        self.execution_confirmed = False
-        self.output_confirmed = True
         
     
     # DOC: Try running AgentTool → Will check required, validity and inference over arguments thatn call and return _execute()

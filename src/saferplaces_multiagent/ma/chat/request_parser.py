@@ -42,17 +42,22 @@ class RequestParser:
         return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        user_input = state["messages"][-1].content
+        print(f"[{NodeNames.REQUEST_PARSER}] → Parsing request...")
+        
+        input_prompt = state["messages"][-1].content
 
         if not isinstance(state["messages"][-1], HumanMessage):
             return state
-
+        
         invoke_messages = [
+            *state["messages"][:-1],
             SystemMessage(content=Prompts.SYSTEM_REQUEST_PROMPT),
-            HumanMessage(content=user_input)
+            HumanMessage(content=input_prompt)
         ]
 
         parsed: ParsedRequest = self.llm.invoke(invoke_messages)
 
+        state['awaiting_user'] = False
         state["parsed_request"] = parsed.model_dump()
+        print(f"[{NodeNames.REQUEST_PARSER}] ✓ Intent: {parsed.intent}")
         return state
