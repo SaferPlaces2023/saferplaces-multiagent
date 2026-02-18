@@ -10,7 +10,7 @@ from typing_extensions import Annotated, Literal, TypedDict
 from typing import Literal, Sequence, TypedDict, List, Optional, Dict, Any
 
 
-from langchain_core.messages import SystemMessage, AnyMessage
+from langchain_core.messages import SystemMessage, AnyMessage, AIMessage
 from langgraph.graph import add_messages, MessagesState
 from langchain_core.messages import BaseMessage
 
@@ -19,7 +19,7 @@ from . import utils
 
 # DOC: This is a basic state that will be used by all nodes in the graph. It ha one key: "messages" : list[AnyMessage]
 
-PlanConfirmationState = Literal["accepted", "rejected", "pending"]
+ConfirmationState = Literal["accepted", "rejected", "pending"]
 
 class MABaseGraphState(TypedDict):
     """Basic state"""
@@ -30,11 +30,19 @@ class MABaseGraphState(TypedDict):
     parsed_request: Dict[str, Any]
     supervisor_next_node: str
     # DOC: handling user-agent conversation flow 
-    plan_confirmation: PlanConfirmationState
     plan: Optional[List[dict]]
+    plan_confirmation: ConfirmationState
+    replan_request: AnyMessage
     current_step: Optional[int]
     tool_results: Dict[str, Any]
     awaiting_user: bool
+
+    # DOC: specialized states
+    retriever_invocation: AIMessage
+    retriever_invocation_confirmation: ConfirmationState
+    retriever_reinvocation_request: AnyMessage
+    retriever_current_step: Optional[int]
+    
     
     # DOC: user session
     project_id: str = None  

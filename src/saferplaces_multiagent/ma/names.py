@@ -18,7 +18,11 @@ class NodeNames:
     SUPERVISOR_ROUTER = "supervisor_router"
     
     # Specialized agent nodes
+    RETRIEVER_SUBGRAPH = "retriever_subgraph"
     RETRIEVER_AGENT = "retriever_agent"
+    RETRIEVER_INVOCATION_CONFIRM = "retriever_invocation_confirm"
+    RETRIEVER_EXECUTOR = "retriever_executor"
+
     DIGITAL_TWIN_AGENT = "digital_twin_agent"
     MODELS_AGENT = "models_agent"
     OPERATIONAL_AGENT = "operational_agent"

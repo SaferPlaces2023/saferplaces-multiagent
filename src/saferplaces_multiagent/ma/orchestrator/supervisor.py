@@ -4,6 +4,7 @@ from typing import List
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
+from langgraph.types import Command, interrupt
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
@@ -35,7 +36,7 @@ AGENT_REGISTRY = [
 
     # DOC: Safercast agent — meteo / clima data retriever
     {
-        "name": SAFERCAST_AGENT_DESCRIPTION["name"],
+        "name": NodeNames.RETRIEVER_SUBGRAPH,
         "description": SAFERCAST_AGENT_DESCRIPTION["description"],
         "examples": SAFERCAST_AGENT_DESCRIPTION["examples"]
     },
@@ -86,14 +87,18 @@ class Prompts:
         "Available agents:",
         f"{AGENT_REGISTRY}"
     )))
-    
-    # RE_PLANNING_PROMPT = staticmethod(lambda parsed_request: '\n'.join((
-    #     "Parsed request:",
-    #     f"{parsed_request}",
-    #     "",
-    #     "Available agents:",
-    #     f"{AGENT_REGISTRY}"
-    # )))
+
+    REPLANNING_PROMPT = staticmethod(lambda state: '\n'.join((
+        "Parsed request:",
+        f"{state.get('parsed_request') or 'No parsed request available.'}",
+        "User asked to revise the proposed plan",
+        "Here is the current plan:",
+        f"{state.get('plan') or 'No plan available.'}",
+        f"User requirements: {state['replan_request'].content}",
+        "Produce a new plan that satisfies the user's requirements. You can modify, reorder, adding or remove steps and their goals."
+    )))
+
+
 
 
 class ExecutionPlan(BaseModel):
@@ -123,7 +128,6 @@ class SupervisorAgent:
             return state
 
         if state.get("plan") is not None and state.get("plan_confirmation") == 'accepted' and state.get("current_step") is not None:
-            # state["current_step"] += 1
             print(f"[{NodeNames.SUPERVISOR_AGENT}] → Step {state['current_step']}/{len(state['plan'])}")
             return state
 
@@ -133,10 +137,18 @@ class SupervisorAgent:
         print(f"[{NodeNames.SUPERVISOR_AGENT}] → Planning...")
         
         parsed_request = state["parsed_request"]
-        invoke_messages = [
-            SystemMessage(content=Prompts.SUPERVISOR_PROMPT),
-            HumanMessage(content=Prompts.PLANNING_PROMPT(parsed_request))
-        ]
+
+        if state.get("plan_confirmation") != 'rejected':
+            invoke_messages = [
+                SystemMessage(content=Prompts.SUPERVISOR_PROMPT),
+                HumanMessage(content=Prompts.PLANNING_PROMPT(parsed_request))
+            ]
+        else:
+            invoke_messages = [
+                SystemMessage(content=Prompts.SUPERVISOR_PROMPT),
+                SystemMessage(content=Prompts.REPLANNING_PROMPT(state))
+            ]
+
         response: ExecutionPlan = self.llm.invoke(invoke_messages)
 
         valid_agent_names = {agent["name"] for agent in AGENT_REGISTRY}
@@ -150,6 +162,7 @@ class SupervisorAgent:
         state["current_step"] = 0
         state["awaiting_user"] = False
         state["plan_confirmation"] = 'pending'
+        state['replan_request'] = None
         
         if len(validated_steps) > 0:
             print(f"[{NodeNames.SUPERVISOR_AGENT}] ✓ Plan: {len(validated_steps)} steps")
@@ -163,16 +176,16 @@ class SupervisorPlannerConfirm:
     
     def __init__(self):
         self.name = NodeNames.SUPERVISOR_PLANNER_CONFIRM
-        self.enabled = False
+        self.enabled = True
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         if self.enabled:
             return self.run(state)
         state["plan_confirmation"] = 'accepted'
+        state['replan_request'] = None
         return state
     
     def run(self, state: MABaseGraphState) -> MABaseGraphState:    
-        from langgraph.types import Command, interrupt
         plan = state.get('plan') or []
         plan_confirmed = state.get('plan_confirmation')
         if len(plan) > 0 and plan_confirmed == 'pending':
@@ -185,20 +198,14 @@ class SupervisorPlannerConfirm:
             response = interruption.get('response', 'User did not provide any response.')
             if response == 'ok':
                 state["plan_confirmation"] = 'accepted'
+                state["replan_request"] = None
             else:
-                state["plan"] = []
+                # state["plan"] = []
                 state["current_step"] = None
                 state["awaiting_user"] = False
                 state['messages'] = []
                 state["plan_confirmation"] = 'rejected'
-                state['parsed_request'] = {
-                    'intent': 'replan or abort if needed',
-                    'entities': [
-                        {"old_plan": plan},
-                        {"user_needs": response}
-                    ],
-                    'raw_text': response
-                }
+                state["replan_request"] = HumanMessage(content=response)
                 
         return state
     
