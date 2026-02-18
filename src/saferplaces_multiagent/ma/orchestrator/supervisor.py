@@ -163,9 +163,13 @@ class SupervisorPlannerConfirm:
     
     def __init__(self):
         self.name = NodeNames.SUPERVISOR_PLANNER_CONFIRM
+        self.enabled = False
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        return self.run(state)
+        if self.enabled:
+            return self.run(state)
+        state["plan_confirmation"] = 'accepted'
+        return state
     
     def run(self, state: MABaseGraphState) -> MABaseGraphState:    
         from langgraph.types import Command, interrupt
