@@ -10,7 +10,7 @@ from .ma.chat.request_parser import RequestParser
 from .ma.chat.final_responder import FinalResponder
 from .ma.orchestrator.supervisor import SupervisorAgent, SupervisorRouter, SupervisorPlannerConfirm
 from .ma.specialized.safercast_agent import DataRetrieverAgent, DataRetrieverInvocationConfirm, DataRetrieverExecutor
-from .ma.specialized.models_agent import ModelsAgent
+from .ma.specialized.models_agent import ModelsAgent, ModelsExecutor, ModelsInvocationConfirm
 
 
 def build_supervisor_subgraph():
@@ -70,6 +70,34 @@ def build_specialized_retriever_subgraph():
     return retriever_builder.compile()
 
 
+def build_specialized_models_subgraph():
+    """Build the specialized models subgraph."""
+    print(f"[Graph] Building specialized models subgraph...")
+    models_builder = StateGraph(MABaseGraphState)
+    
+    models_agent = ModelsAgent()
+    models_invocation_confirm = ModelsInvocationConfirm()
+    models_executor = ModelsExecutor()
+
+    models_builder.add_node(models_agent.name, models_agent)
+    models_builder.add_node(models_invocation_confirm.name, models_invocation_confirm)
+    models_builder.add_node(models_executor.name, models_executor)
+
+    models_builder.add_edge(START, models_agent.name)
+    models_builder.add_edge(models_agent.name, models_invocation_confirm.name)
+    # models_builder.add_edge(models_invocation_confirm.name, models_executor.name)
+    models_builder.add_conditional_edges(
+        models_invocation_confirm.name,
+        lambda state: state.get('models_invocation_confirmation') == 'rejected',
+        {
+            True: models_agent.name,
+            False: models_executor.name,
+        }
+    )
+    
+    return models_builder.compile()
+
+
 def build_multiagent_graph():
     """Build the main multi-agent graph with all nodes and edges."""
     print(f"[Graph] Building multiagent graph...")
@@ -80,7 +108,7 @@ def build_multiagent_graph():
     
     supervisor_subgraph = build_supervisor_subgraph()
     retriever_subgraph = build_specialized_retriever_subgraph()
-    models_agent = ModelsAgent()
+    models_subgraph = build_specialized_models_subgraph()
     
     final_responder = FinalResponder()
     
@@ -88,7 +116,7 @@ def build_multiagent_graph():
     graph_builder.add_node(NodeNames.REQUEST_PARSER, request_parser)
     graph_builder.add_node(NodeNames.SUPERVISOR_SUBGRAPH, supervisor_subgraph)
     graph_builder.add_node(NodeNames.RETRIEVER_SUBGRAPH, retriever_subgraph)
-    graph_builder.add_node(NodeNames.MODELS_AGENT, models_agent)
+    graph_builder.add_node(NodeNames.MODELS_SUBGRAPH, models_subgraph)
     graph_builder.add_node(NodeNames.FINAL_RESPONDER, final_responder)
     
     # Add edges
@@ -101,7 +129,7 @@ def build_multiagent_graph():
         lambda state: state.get("supervisor_next_node", END),
         {
             NodeNames.RETRIEVER_SUBGRAPH: NodeNames.RETRIEVER_SUBGRAPH,
-            NodeNames.MODELS_AGENT: NodeNames.MODELS_AGENT,
+            NodeNames.MODELS_SUBGRAPH: NodeNames.MODELS_SUBGRAPH,
             NodeNames.FINAL_RESPONDER: NodeNames.FINAL_RESPONDER,
             END: END,
         }
@@ -109,7 +137,7 @@ def build_multiagent_graph():
     
     # Link specialized agents back to supervisor
     graph_builder.add_edge(NodeNames.RETRIEVER_SUBGRAPH, NodeNames.SUPERVISOR_SUBGRAPH)
-    graph_builder.add_edge(NodeNames.MODELS_AGENT, NodeNames.SUPERVISOR_SUBGRAPH)
+    graph_builder.add_edge(NodeNames.MODELS_SUBGRAPH, NodeNames.SUPERVISOR_SUBGRAPH)
     # Final edge
     graph_builder.add_edge(NodeNames.FINAL_RESPONDER, END)
     

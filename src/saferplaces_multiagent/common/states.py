@@ -37,11 +37,17 @@ class MABaseGraphState(TypedDict):
     tool_results: Dict[str, Any]
     awaiting_user: bool
 
-    # DOC: specialized states
+    # DOC: specialized retriever agent state
     retriever_invocation: AIMessage
     retriever_invocation_confirmation: ConfirmationState
     retriever_reinvocation_request: AnyMessage
     retriever_current_step: Optional[int]
+
+    # DOC: specialized models agent state
+    models_invocation: AIMessage
+    models_invocation_confirmation: ConfirmationState
+    models_reinvocation_request: AnyMessage
+    models_current_step: Optional[int]
     
     
     # DOC: user session

@@ -23,8 +23,13 @@ class NodeNames:
     RETRIEVER_INVOCATION_CONFIRM = "retriever_invocation_confirm"
     RETRIEVER_EXECUTOR = "retriever_executor"
 
-    DIGITAL_TWIN_AGENT = "digital_twin_agent"
+    MODELS_SUBGRAPH = "models_subgraph"
     MODELS_AGENT = "models_agent"
+    MODELS_INVOCATION_CONFIRM = "models_invocation_confirm"
+    MODELS_EXECUTOR = "models_executor"
+
+    
+    DIGITAL_TWIN_AGENT = "digital_twin_agent"
     OPERATIONAL_AGENT = "operational_agent"
 
 

@@ -28,7 +28,7 @@ AGENT_REGISTRY = [
 
     # DOC: Models agent — flood models, fire propagation, structural impact analyses
     {
-        "name": MODELS_AGENT_DESCRIPTION["name"],
+        "name": NodeNames.MODELS_SUBGRAPH,
         "description": MODELS_AGENT_DESCRIPTION["description"],
         "examples": MODELS_AGENT_DESCRIPTION["examples"]
     },
