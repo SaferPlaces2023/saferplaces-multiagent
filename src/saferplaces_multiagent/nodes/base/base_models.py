@@ -6,6 +6,10 @@ import datetime
 from ...common import utils
 
 
+_URI_HINT = "HTTP(S) URL, S3 URI (s3://...)"
+
+PlanConfirmation = Literal["accepted", "rejected", "pending"]
+
 class BBox(BaseModel):
     """
     Bounding box in EPSG:4326 (WGS84).

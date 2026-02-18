@@ -6,20 +6,20 @@ import json
 import datetime
 from textwrap import indent
 
-from typing_extensions import Annotated, TypedDict
-from typing import Sequence, TypedDict, List, Optional, Dict, Any
+from typing_extensions import Annotated, Literal, TypedDict
+from typing import Literal, Sequence, TypedDict, List, Optional, Dict, Any
 
 
 from langchain_core.messages import SystemMessage, AnyMessage
 from langgraph.graph import add_messages, MessagesState
 from langchain_core.messages import BaseMessage
 
-
 from . import utils
 
 
 # DOC: This is a basic state that will be used by all nodes in the graph. It ha one key: "messages" : list[AnyMessage]
 
+PlanConfirmationState = Literal["accepted", "rejected", "pending"]
 
 class MABaseGraphState(TypedDict):
     """Basic state"""
@@ -30,6 +30,7 @@ class MABaseGraphState(TypedDict):
     parsed_request: Dict[str, Any]
     supervisor_next_node: str
     # DOC: handling user-agent conversation flow 
+    plan_confirmation: PlanConfirmationState
     plan: Optional[List[dict]]
     current_step: Optional[int]
     tool_results: Dict[str, Any]

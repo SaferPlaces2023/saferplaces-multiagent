@@ -5,7 +5,24 @@ from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
 from .tools.dpc_retriever_tool import DPCRetrieverTool
 from .tools.meteoblue_retriever_tool import MeteoblueRetrieverTool
-from ..names import NodeNames, AgentNames
+from ..names import NodeNames, NodeNames
+
+# Registry-friendly description for the Data Retriever agent.
+# This dictionary follows the shape expected by supervisor.AGENT_REGISTRY
+# (keys: "name", "description", "examples").
+SAFERCAST_AGENT_DESCRIPTION = {
+    "name": NodeNames.RETRIEVER_AGENT,
+    "description": (
+        "Specialized agent that retrieves meteorological and observational datasets "
+        "(e.g. DPC radar products, Meteoblue forecasts) and prepares them as layers "
+        "for downstream processing and analysis."
+    ),
+    "examples": [
+        "Retrieve precipitation forecast for Milan for the next 24 hours",
+        "Get radar rainfall intensity (SRI) for northern Italy",
+        "Download temperature map for a specified bbox and time range"
+    ]
+}
 
 
 class Prompts:
@@ -34,7 +51,7 @@ class DataRetrieverAgent:
     )
 
     def __init__(self):
-        self.name = AgentNames.DATA_RETRIEVER_AGENT
+        self.name = NodeNames.RETRIEVER_AGENT
         self.tools = {tool_name: tool() for tool_name, tool in self.tools.items()}
         self.llm = _base_llm.bind_tools(list(self.tools.values()))
 
@@ -101,7 +118,7 @@ class DataRetrieverAgent:
 
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        print(f"[{AgentNames.DATA_RETRIEVER_AGENT}] → Executing tool...")
+        print(f"[{NodeNames.RETRIEVER_AGENT}] → Executing tool...")
 
         invoke_messages = [
             SystemMessage(content=Prompts.SPECIALIZED_TOOL_SELECTION),
@@ -112,23 +129,30 @@ class DataRetrieverAgent:
         invocation_state = self.tool_call_invocation(invocation, state)
         if invocation_state is not None:
             return invocation_state
-
+        print(f"[{NodeNames.RETRIEVER_AGENT}] → Tool calls: [{len(invocation.tool_calls)}]: {[call['name'] for call in invocation.tool_calls]}")
+        
         # TODO: We should loop through them
-        tool_call = invocation.tool_calls[0]
-        print(f"[{AgentNames.DATA_RETRIEVER_AGENT}] → Tool: {tool_call['name']}")
-        
-        validation_state = self.tool_call_validation(tool_call, state)
-        if validation_state is not None:
-            print(f"[{AgentNames.DATA_RETRIEVER_AGENT}] ⚠ Validation failed")
-            return validation_state
-        
-    
-        tool_response = self.tool_call_response(tool_call, state)
+        tool_response_seq = []
+        for tool_call in invocation.tool_calls:
+            print(f"[{NodeNames.RETRIEVER_AGENT}] → Tool: {tool_call['name']}")
+            
+            validation_state = self.tool_call_validation(tool_call, state)
+            if validation_state is not None:
+                print(f"[{NodeNames.RETRIEVER_AGENT}] ⚠ Validation failed")
+                return validation_state
+            
+            tool_response = self.tool_call_response(tool_call, state)
+            
+            tool_response_seq.append(tool_response)
+            
+            print(f"[{NodeNames.RETRIEVER_AGENT}] → Tool response: {tool_response}")
 
-        ai_message_out = self.llm.invoke([invocation, tool_response])
-
-        state["messages"] = [invocation, tool_response, ai_message_out]
-        print(f"[{AgentNames.DATA_RETRIEVER_AGENT}] ✓ Done")
+        # ai_message_out = self.llm.invoke([invocation, tool_response])
+        # state["messages"] = [invocation, tool_response, ai_message_out]
+        
+        # ai_message_out = self.llm.invoke([invocation, *tool_response_seq])
+        state["messages"] = [invocation, *tool_response_seq] #, ai_message_out]
+        
+        print(f"[{NodeNames.RETRIEVER_AGENT}] ✓ Done")
 
         return state
-

@@ -7,57 +7,50 @@ from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
-from ..names import NodeNames, AgentNames
+from ..names import NodeNames, NodeNames
+from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
+from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
 
 
 AGENT_REGISTRY = [
-    {
-        "name": NodeNames.DIGITAL_TWIN_AGENT,
-        "description": (
-            "Build a geospatial digital twin."
-        ),
-        "examples": [
-            "Elevation in Milan",
-            "Twin for Rome",
-            "Activate area in Paris"
-        ]
-    },
+    # {
+    #     "name": NodeNames.DIGITAL_TWIN_AGENT,
+    #     "description": (
+    #         "Build a geospatial digital twin."
+    #     ),
+    #     "examples": [
+    #         "Elevation in Milan",
+    #         "Twin for Rome",
+    #         "Activate area in Paris"
+    #     ]
+    # },
 
+    # DOC: Models agent — flood models, fire propagation, structural impact analyses
     {
-        "name": NodeNames.SIMULATIONS_AGENT,
-        "description": (
-            "Run simulation models"
-        ),
-        "examples": [
-            "Simulate 100mm of rain",
-            "Count how the buildings were saffected by flood"
-        ]
+        "name": MODELS_AGENT_DESCRIPTION["name"],
+        "description": MODELS_AGENT_DESCRIPTION["description"],
+        "examples": MODELS_AGENT_DESCRIPTION["examples"]
     },
 
 
-
+    # DOC: Safercast agent — meteo / clima data retriever
     {
-        "name": NodeNames.RETRIEVAL_AGENT,
-        "description": (
-            "Retrieve data from third-part provider."
-        ),
-        "examples": [
-            "How is the current temperature in Milan?",
-            "Get rainfall value for next 3 hours"
-        ]
+        "name": SAFERCAST_AGENT_DESCRIPTION["name"],
+        "description": SAFERCAST_AGENT_DESCRIPTION["description"],
+        "examples": SAFERCAST_AGENT_DESCRIPTION["examples"]
     },
 
-    {
-        "name": NodeNames.OPERATIONAL_AGENT,
-        "description": (
-            "Perform a geospatial operation between layers."
-        ),
-        "examples": [
-            "Cut flood map where its level is above 1 meter.",
-            "Get buildings that are in 100 meters radious from river network",
-            "Which is the average value of water depth in a bounding box"
-        ]
-    }
+    # {
+    #     "name": NodeNames.OPERATIONAL_AGENT,
+    #     "description": (
+    #         "Perform a geospatial operation between layers."
+    #     ),
+    #     "examples": [
+    #         "Cut flood map where its level is above 1 meter.",
+    #         "Get buildings that are in 100 meters radious from river network",
+    #         "Which is the average value of water depth in a bounding box"
+    #     ]
+    # }
 ]
 
 
@@ -93,6 +86,14 @@ class Prompts:
         "Available agents:",
         f"{AGENT_REGISTRY}"
     )))
+    
+    # RE_PLANNING_PROMPT = staticmethod(lambda parsed_request: '\n'.join((
+    #     "Parsed request:",
+    #     f"{parsed_request}",
+    #     "",
+    #     "Available agents:",
+    #     f"{AGENT_REGISTRY}"
+    # )))
 
 
 class ExecutionPlan(BaseModel):
@@ -110,28 +111,28 @@ class SupervisorAgent:
     """Agent responsible for planning and orchestrating execution steps."""
 
     def __init__(self):
-        self.name = AgentNames.SUPERVISOR_AGENT
+        self.name = NodeNames.SUPERVISOR_AGENT
         self.llm = _base_llm.with_structured_output(ExecutionPlan)
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        print(f"[{AgentNames.SUPERVISOR_AGENT}] → Planning...")
 
         if state.get("awaiting_user"):
             return state
 
-        if state.get("plan") is not None and state.get("current_step") is not None:
+        if state.get("plan") is not None and state.get("plan_confirmation") == 'accepted' and state.get("current_step") is not None:
             # state["current_step"] += 1
-            print(f"[{AgentNames.SUPERVISOR_AGENT}] → Step {state['current_step']}/{len(state['plan'])}")
+            print(f"[{NodeNames.SUPERVISOR_AGENT}] → Step {state['current_step']}/{len(state['plan'])}")
             return state
 
         if "parsed_request" not in state:
             return state
 
+        print(f"[{NodeNames.SUPERVISOR_AGENT}] → Planning...")
+        
         parsed_request = state["parsed_request"]
-
         invoke_messages = [
             SystemMessage(content=Prompts.SUPERVISOR_PROMPT),
             HumanMessage(content=Prompts.PLANNING_PROMPT(parsed_request))
@@ -148,12 +149,53 @@ class SupervisorAgent:
         state["plan"] = validated_steps
         state["current_step"] = 0
         state["awaiting_user"] = False
+        state["plan_confirmation"] = 'pending'
         
         if len(validated_steps) > 0:
-            print(f"[{AgentNames.SUPERVISOR_AGENT}] ✓ Plan: {len(validated_steps)} steps")
+            print(f"[{NodeNames.SUPERVISOR_AGENT}] ✓ Plan: {len(validated_steps)} steps")
         else:
-            print(f"[{AgentNames.SUPERVISOR_AGENT}] ✓ No action needed (general query)")
+            print(f"[{NodeNames.SUPERVISOR_AGENT}] ✓ No action needed (general query)")
 
+        return state
+    
+    
+class SupervisorPlannerConfirm:
+    
+    def __init__(self):
+        self.name = NodeNames.SUPERVISOR_PLANNER_CONFIRM
+
+    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+        return self.run(state)
+    
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:    
+        from langgraph.types import Command, interrupt
+        plan = state.get('plan') or []
+        plan_confirmed = state.get('plan_confirmation')
+        if len(plan) > 0 and plan_confirmed == 'pending':
+            print(f"Do you want to proceed with the plan: {plan}?",)
+            interruption = interrupt({
+                "content": f"Do you want to proceed with the plan: {plan}?",
+                "interrupt_type": "plan-confirmation"
+            })
+            print('solve interruption', interruption)
+            response = interruption.get('response', 'User did not provide any response.')
+            if response == 'ok':
+                state["plan_confirmation"] = 'accepted'
+            else:
+                state["plan"] = []
+                state["current_step"] = None
+                state["awaiting_user"] = False
+                state['messages'] = []
+                state["plan_confirmation"] = 'rejected'
+                state['parsed_request'] = {
+                    'intent': 'replan or abort if needed',
+                    'entities': [
+                        {"old_plan": plan},
+                        {"user_needs": response}
+                    ],
+                    'raw_text': response
+                }
+                
         return state
     
 

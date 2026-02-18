@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
-from ..names import NodeNames, AgentNames
+from ..names import NodeNames, NodeNames
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
@@ -35,7 +35,7 @@ class Prompts:
 class RequestParser:
 
     def __init__(self):
-        self.name = AgentNames.REQUEST_PARSER
+        self.name = NodeNames.REQUEST_PARSER
         self.llm = _base_llm.with_structured_output(ParsedRequest)
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
@@ -44,11 +44,10 @@ class RequestParser:
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{NodeNames.REQUEST_PARSER}] → Parsing request...")
         
-        input_prompt = state["messages"][-1].content
-
         if not isinstance(state["messages"][-1], HumanMessage):
             return state
         
+        input_prompt = state["messages"][-1].content
         invoke_messages = [
             *state["messages"][:-1],
             SystemMessage(content=Prompts.SYSTEM_REQUEST_PROMPT),
