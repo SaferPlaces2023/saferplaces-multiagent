@@ -121,6 +121,7 @@ class DataRetrieverAgent:
         invocation_state = self.tool_calls_invocation(invocation, state)
         if invocation_state is not None:
             return invocation_state
+        
         print(f"[{NodeNames.RETRIEVER_AGENT}] → Tool calls: [{len(invocation.tool_calls)}]: {[call['name'] for call in invocation.tool_calls]}")
         
         state['retriever_invocation'] = invocation
@@ -138,14 +139,7 @@ class DataRetrieverInvocationConfirm:
         self.enabled = True
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        validation_state = self.validate(state)
-        if validation_state is not None:
-            return validation_state
-        if self.enabled:
-            return self.run(state)
-        state["retriever_invocation_confirmation"] = 'accepted'
-        state['retriever_reinvocation_request'] = None
-        return state
+        return self.run(state)
     
     def tool_call_validation(self, tool_call: ToolCall, state: MABaseGraphState) -> MABaseGraphState | None:
         tool_name = tool_call["name"]
@@ -190,22 +184,12 @@ class DataRetrieverInvocationConfirm:
         })
         print('solve interruption', interruption)
         response = interruption.get('response', 'User did not provide any response.')
-        # state["retriever_invocation"] = None
         state["retriever_current_step"] = 0
         state["retriever_invocation_confirmation"] = 'rejected'
-        # state['retriever_reinvocation_request'] = (
-        #     "Some tools needs to be reviewed or corrected."
-        #     "Here is the current invocation: \n"
-        #     '\n'.join([tc['name'] + ': ' + str(tc['args']) for tc in invocation.tool_calls]) + '\n'
-        #     f"User response: {response}\n"
-        #     "Produce a new sequence of tool calls based on the user's feedback. You can modify arguments, order, adding or deleting tool calls."
-        # )
         state['retriever_reinvocation_request'] = HumanMessage(content=response)
         return state
-        
-
     
-    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+    def confirm(self, state: MABaseGraphState) -> MABaseGraphState:
         invocation = state.get('retriever_invocation')
         invocation_confirmed = state.get('retriever_invocation_confirmation')
         if invocation is not None and len(invocation.tool_calls) > 0 and invocation_confirmed == 'pending':
@@ -220,11 +204,20 @@ class DataRetrieverInvocationConfirm:
                 state["retriever_invocation_confirmation"] = 'accepted'
                 state["retriever_reinvocation_request"] = None
             else:
-                # state["retriever_invocation"] = None
                 state["retriever_current_step"] = 0
                 state["retriever_invocation_confirmation"] = 'rejected'                
                 state['retriever_reinvocation_request'] = HumanMessage(content=response)
         
+        return state
+    
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        validation_state = self.validate(state)
+        if validation_state is not None:
+            return validation_state
+        if self.enabled:
+            return self.run(state)
+        state["retriever_invocation_confirmation"] = 'accepted'
+        state['retriever_reinvocation_request'] = None
         return state
     
 

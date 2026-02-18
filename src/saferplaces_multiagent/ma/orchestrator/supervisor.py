@@ -200,7 +200,6 @@ class SupervisorPlannerConfirm:
                 state["plan_confirmation"] = 'accepted'
                 state["replan_request"] = None
             else:
-                # state["plan"] = []
                 state["current_step"] = None
                 state["awaiting_user"] = False
                 state['messages'] = []
