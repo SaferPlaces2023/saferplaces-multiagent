@@ -47,7 +47,9 @@ class RequestParser:
         # if state.get("awaiting_user"):
         #     state['awaiting_user'] = False
         #     return state
-        
+        if len(state["messages"]) == 0:
+            return state
+
         if not isinstance(state["messages"][-1], HumanMessage):
             return state
         

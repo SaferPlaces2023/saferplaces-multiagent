@@ -9,6 +9,7 @@ from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, Human
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
+from ...nodes.base.base_models import Layer
 from ..names import NodeNames
 
 
@@ -18,7 +19,8 @@ LAYERS_AGENT_DESCRIPTION = {
     "name": NodeNames.LAYERS_AGENT,
     "description": (
         "Agent that manages a registry/list of geospatial layers. Each layer is a simple "
-        "record describing title, type (raster|vector), source and optional metadata."
+        "record describing title, type (raster|vector), source and optional metadata.\n"
+        "This agent can list, select, add, remove, and update layers."
     ),
     "examples": [
         "List available layers",
@@ -28,31 +30,18 @@ LAYERS_AGENT_DESCRIPTION = {
 }
 
 
-@dataclass
-class Layer:
-    title: str
-    type: str  # "raster" or "vector"
-    src: str
-    description: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-    def __post_init__(self):
-        if self.type not in ("raster", "vector"):
-            raise ValueError("Layer.type must be 'raster' or 'vector'")
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-
-
 class LayersRegistry:
     """In-memory registry of geospatial layers, scoped to a single conversation."""
     
-    def __init__(self, layers: Optional[List[Layer]] = None):
+    def __init__(self, layers: Optional[List[Layer]] = None, from_state: Optional[MABaseGraphState] = None):
         """Initialize with an optional list of layers.
         
         Args:
             layers: List of Layer objects. If None, creates empty registry.
+            from_state: Optional state to initialize the registry from.
         """
+        if from_state is not None:
+            layers = [Layer(**l) for l in from_state.get("layer_registry", [])]
         self._layers = {l.title: l for l in (layers or [])}
 
     def list_layers(self) -> List[Layer]:
@@ -410,13 +399,8 @@ class LayersAgent:
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{self.name}] → Processing layer operations...")
-
-        # Read layers from state (initialize if not present)
-        layers_data = state.get("layers_registry", [])
-        layers = [Layer(**l) if isinstance(l, dict) else l for l in layers_data]
         
-        # Create registry scoped to this conversation
-        registry = LayersRegistry(layers)
+        registry = LayersRegistry(from_state=state)
         
         # Inject registry into all tools
         for tool in self.tools:
@@ -425,7 +409,7 @@ class LayersAgent:
         # Invoke LLM with tools
         invoke_messages = [
             SystemMessage(content="You are a specialized agent for managing geospatial layers. Use the available tools to accomplish the goal."),
-            HumanMessage(content=f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}\nParsed: {state.get('parsed_request', '')}")
+            HumanMessage(content=f"Goal: {state['layers_request']}")
         ]
 
         invocation = self.llm.invoke(invoke_messages)
@@ -433,10 +417,8 @@ class LayersAgent:
         # No tool calls - just return message
         if not hasattr(invocation, "tool_calls") or len(invocation.tool_calls) == 0:
             print(f"[{self.name}] ✓ No tool calls")
-            state["current_step"] += 1
-            state['messages'] = invocation
-            # Save updated layers back to state
-            state["layers_registry"] = [l.to_dict() for l in registry.list_layers()]
+            # state['messages'] = invocation
+            state["layer_registry"] = [l.to_dict() for l in registry.list_layers()]
             return state
 
         # Execute tools immediately
@@ -453,15 +435,6 @@ class LayersAgent:
                 print(f"[{self.name}]   → {tool_name}({tool_args})")
                 result = tool._run(**tool_args)
                 
-                # Store result in state
-                state.setdefault("tool_results", {})
-                state["tool_results"][f"step_{state['current_step']}"] = state["tool_results"].get(f"step_{state['current_step']}", [])
-                state["tool_results"][f"step_{state['current_step']}"].append({
-                    "tool": tool_name,
-                    "args": tool_args,
-                    "result": result
-                })
-                
                 tool_responses.append(ToolMessage(
                     content=result,
                     tool_call_id=tool_call["id"]
@@ -472,11 +445,9 @@ class LayersAgent:
                     tool_call_id=tool_call["id"]
                 ))
 
-        state["current_step"] += 1
-        state["messages"] = [invocation, *tool_responses]
-        
-        # Save updated layers back to state
-        state["layers_registry"] = [l.to_dict() for l in registry.list_layers()]
+        state["layers_invocation"] = invocation
+        state["layers_response"] = tool_responses
+        state["layer_registry"] = [l.to_dict() for l in registry.list_layers()]
         
         print(f"[{self.name}] ✓ Done")
         return state

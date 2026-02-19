@@ -163,7 +163,8 @@ class GraphInterface:
         
         restored_layer_registry = restore_layer_registry()
         event_value = { 
-            'messages': [ GraphStates.build_layer_registry_system_message(restored_layer_registry) ],
+            # 'messages': [ GraphStates.build_layer_registry_system_message(restored_layer_registry) ],
+            'messages': [],
             'layer_registry': restored_layer_registry 
         }
         _ = list( self.G.stream(
@@ -301,10 +302,10 @@ class GraphInterface:
         def prepare_system_messages():            
             system_messages = []
             system_messages.append(GraphStates.build_nowtime_system_message())
-            if 'layer_registry' in state_updates and state_updates['layer_registry']:
-                system_messages.append(GraphStates.build_layer_registry_system_message(state_updates.get('layer_registry', [])))
-            if 'user_drawn_shapes' in state_updates and state_updates['user_drawn_shapes']:
-                system_messages.append(GraphStates.build_user_drawn_shapes_system_message(state_updates.get('user_drawn_shapes', [])))        
+            # if 'layer_registry' in state_updates and state_updates['layer_registry']:
+                # system_messages.append(GraphStates.build_layer_registry_system_message(state_updates.get('layer_registry', [])))
+            # if 'user_drawn_shapes' in state_updates and state_updates['user_drawn_shapes']:
+                # system_messages.append(GraphStates.build_user_drawn_shapes_system_message(state_updates.get('user_drawn_shapes', [])))        
             return system_messages
         
         def build_stream():

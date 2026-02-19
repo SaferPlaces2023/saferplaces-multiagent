@@ -11,7 +11,7 @@ from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 from ...nodes.base import base_models
 from .tools.safer_rain_tool import SaferRainTool
-from .layers_agent import Prompts as LayersPrompts
+from .layers_agent import Prompts as LayersPrompts, LayersAgent
 
 
 # Registry-friendly description for the Models agent.
@@ -43,20 +43,27 @@ class Prompts:
     SPECIALIZED_REQUEST = staticmethod(lambda state: '\n'.join((
         f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
         f"Parsed: {state.get('parsed_request', '')}",
+        f"Tool hints: {state['plan'][state['current_step']].get('tool_hints', 'N/A')}",
         "",
-        "Available layers:",
-        LayersPrompts.format_layers_description(state.get("layers_registry", []))
+        "Additional context:",
+        f"{state.get('models_additional_context', 'No additional context available')}",   
+        "",
+        # "",
+        # "Available layers:",
+        # LayersPrompts.format_layers_description(state.get("layer_registry", []))
     )))
 
     SPECIALIZED_RE_REQUEST = staticmethod(lambda state: '\n'.join((
         f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
+        f"Tool hints: {state['plan'][state['current_step']].get('tool_hints', 'N/A')}",
+        "",
         "Some tools needs to be reviewed or corrected.",
         "Here is the current invocation:",
         '\n'.join([tc['name'] + ': ' + str(tc['args']) for tc in state['models_invocation'].tool_calls]),
         "",
-        "Available layers:",
-        LayersPrompts.format_layers_description(state.get("layers_registry", [])),
-        "",
+        # "Available layers:",
+        # LayersPrompts.format_layers_description(state.get("layer_registry", [])),
+        # "",
         f"User response: {state['models_reinvocation_request'].content}",
         "Produce a new sequence of tool calls based on the user's feedback. You can modify arguments, order, adding or deleting tool calls."
     )))
@@ -91,6 +98,7 @@ class ModelsAgent:
         self.name = NodeNames.MODELS_AGENT
         self.tools = Tools().tools
         self.llm = _base_llm.bind_tools(list(self.tools.values()))
+        self.layer_agent = LayersAgent()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         return self.run(state)
@@ -109,6 +117,24 @@ class ModelsAgent:
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
 
         print(f"[{NodeNames.MODELS_AGENT}] → Invoking tools...")
+
+        # region: [PlanAdditionalContex] layer agent retrieve additional context for a better planification
+        state['layers_request'] = (
+            "The goal of the current step is:\n"
+            f"{state['plan'][state['current_step']].get('goal', 'N/A')} \n"
+            "Retrieve additional context from available layers."
+        )
+        layer_agent_state = self.layer_agent(state)
+        state['layer_registry'] = layer_agent_state.get('layer_registry')
+        state['layers_invocation'] = layer_agent_state.get('layers_invocation')
+        state['layers_response'] = layer_agent_state.get('layers_response')
+        print('layer_response', state.get('layers_response'))
+        state['models_additional_context'] = (
+            f"Layer context:\n"
+            f"{state['layers_response'][0].content if hasattr(state['layers_response'][0], 'content') else 'No additional context available'}"
+        )
+        print('models_additional_context', state.get('models_additional_context'))
+        # endregion: [PlanAdditionalContex]
 
         if state.get("models_invocation_confirmation") != 'rejected':
             invoke_messages = [
@@ -171,7 +197,7 @@ class ModelsInvocationConfirm:
     
     def validate(self, state: MABaseGraphState) -> MABaseGraphState | None:
         invocation = state["models_invocation"]
-        invocation_step = state["models_current_step"]
+        invocation_step = state.get("models_current_step") or 0
 
         invalid_invocation_messages = []
         for tool_call in invocation.tool_calls[invocation_step:]:
@@ -265,7 +291,7 @@ class ModelsExecutor:
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         
         invocation = state["models_invocation"]
-        invocation_step = state["models_current_step"]
+        invocation_step = state.get("models_current_step") or 0
         
         tool_response_seq = []
         

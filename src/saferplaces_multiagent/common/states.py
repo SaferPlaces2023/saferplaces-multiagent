@@ -7,10 +7,10 @@ import datetime
 from textwrap import indent
 
 from typing_extensions import Annotated, Literal, TypedDict
-from typing import Literal, Sequence, TypedDict, List, Optional, Dict, Any
+from typing import Literal, Sequence, TypedDict, List, Optional, Dict, Any, Union
 
 
-from langchain_core.messages import SystemMessage, AnyMessage, AIMessage
+from langchain_core.messages import SystemMessage, AnyMessage, AIMessage, ToolMessage
 from langgraph.graph import add_messages, MessagesState
 from langchain_core.messages import BaseMessage
 
@@ -21,16 +21,31 @@ from . import utils
 
 ConfirmationState = Literal["accepted", "rejected", "pending"]
 
+class AdditionalContext(TypedDict):
+    source: str
+    payload: Union[str, List[Any], Dict[str, Any]]
+
 class MABaseGraphState(TypedDict):
     """Basic state"""
     # DOC: all messages
     messages: Annotated[list[AnyMessage], add_messages]
+
+    # DOC: user session
+    project_id: str = None  
+    user_id: str = None
+    
+    # DOC: global state
+    layer_registry: Annotated[Sequence[dict], merge_layer_registry] = []
+    nowtime: str = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat()
+    user_drawn_shapes: Annotated[Sequence[dict], merge_user_drawn_shapes] = []
+    avaliable_tools: list[str] | None = []
 
     # DOC: multi-agent metadata
     parsed_request: Dict[str, Any]
     supervisor_next_node: str
     # DOC: handling user-agent conversation flow 
     plan: Optional[List[dict]]
+    plan_additional_context: Optional[List[AdditionalContext]]
     plan_confirmation: ConfirmationState
     replan_request: AnyMessage
     current_step: Optional[int]
@@ -45,20 +60,15 @@ class MABaseGraphState(TypedDict):
 
     # DOC: specialized models agent state
     models_invocation: AIMessage
+    models_additional_context: Optional[List[AdditionalContext]]
     models_invocation_confirmation: ConfirmationState
     models_reinvocation_request: AnyMessage
     models_current_step: Optional[int]
-    
-    
-    # DOC: user session
-    project_id: str = None  
-    user_id: str = None
-    
-    # DOC: global state
-    nowtime: str = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat()
-    layer_registry: Annotated[Sequence[dict], merge_layer_registry] = []
-    user_drawn_shapes: Annotated[Sequence[dict], merge_user_drawn_shapes] = []
-    avaliable_tools: list[str] | None = []
+
+    # DOC: on-demand layers agent state
+    layers_request: AIMessage
+    layers_invocation: AIMessage
+    layers_response: List[Any]
     
 
 

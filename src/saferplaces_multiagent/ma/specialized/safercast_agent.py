@@ -38,7 +38,10 @@ class Prompts:
 
     SPECIALIZED_REQUEST = staticmethod(lambda state: '\n'.join((
         f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
-        f"Parsed: {state.get('parsed_request', '')}"
+        f"Parsed: {state.get('parsed_request', '')}",
+        "",
+        f"Tool hints:",
+        f"{state['plan'][state['current_step']].get('tool_hints', 'N/A')}"
     )))
 
     SPECIALIZED_RE_REQUEST = staticmethod(lambda state: '\n'.join((

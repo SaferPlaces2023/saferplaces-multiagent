@@ -1,6 +1,6 @@
 
 from pydantic import BaseModel, Field
-from typing import List
+from typing import Any, List, Dict, Optional
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import AIMessage, SystemMessage, HumanMessage
@@ -11,7 +11,7 @@ from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
 from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
-from ..specialized.layers_agent import Prompts as LayersPrompts
+from ..specialized.layers_agent import LayersAgent, Prompts as LayersPrompts
 
 
 AGENT_REGISTRY = [
@@ -70,6 +70,7 @@ class Prompts:
         "- Each step (if any) must specify:",
         "  - the agent name",
         "  - the goal of that step",
+        "  - optional tool_hints with hints about additional context to consider",
         "",
         "Rules:",
         "- Only use agents from the provided registry.",
@@ -85,9 +86,12 @@ class Prompts:
         "Parsed request:",
         f"{state.get('parsed_request', 'No parsed request available')}",
         "",
-        "Available layers in current session:",
-        LayersPrompts.format_layers_description(state.get("layers_registry", [])),
+        "Additional context:",
+        f"{state.get('plan_additional_context', 'No additional context available')}",   
         "",
+        # "Available layers in current session:",
+        # LayersPrompts.format_layers_description(state.get("layer_registry", [])),
+        # "",
         "Available agents:",
         f"{AGENT_REGISTRY}"
     )))
@@ -96,9 +100,9 @@ class Prompts:
         "Parsed request:",
         f"{state.get('parsed_request') or 'No parsed request available.'}",
         "",
-        "Available layers in current session:",
-        LayersPrompts.format_layers_description(state.get("layers_registry", [])),
-        "",
+        # "Available layers in current session:",
+        # LayersPrompts.format_layers_description(state.get("layer_registry", [])),
+        # "",
         "User asked to revise the proposed plan",
         "Here is the current plan:",
         f"{state.get('plan') or 'No plan available.'}",
@@ -116,6 +120,14 @@ class ExecutionPlan(BaseModel):
     class PlanStep(BaseModel):
         agent: str = Field(description="Name of the specialized agent to execute this step")
         goal: str = Field(description="High-level description of what this step should accomplish")
+        tool_hints: Optional[List[str]] = Field(
+            description=(
+                "Optional, non-binding hints about tools and arguments to consider.\n"
+                "Each hint should be a brief string describing explicitly a potential tool or argument that might be useful for this step (but not mandatory).\n"
+                "When specify some hints, be clear in describing their purpose and explicitly including their value if exists.\n"
+                "Keep lightweight; include only if useful."
+            ),
+        )
 
     steps: List[PlanStep]
 
@@ -127,6 +139,7 @@ class SupervisorAgent:
     def __init__(self):
         self.name = NodeNames.SUPERVISOR_AGENT
         self.llm = _base_llm.with_structured_output(ExecutionPlan)
+        self.layer_agent = LayersAgent()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         return self.run(state)
@@ -144,6 +157,24 @@ class SupervisorAgent:
             return state
 
         print(f"[{NodeNames.SUPERVISOR_AGENT}] → Planning...")
+
+        # region: [PlanAdditionalContex] layer agent retrieve additional context for a better planification
+        state['layers_request'] = (
+            "User has this request:\n"
+            f"{state.get('parsed_request', 'No parsed request available')} \n"
+            "Retrieve additional context from available layers."
+        )
+        layer_agent_state = self.layer_agent(state)
+        state['layer_registry'] = layer_agent_state.get('layer_registry')
+        state['layers_invocation'] = layer_agent_state.get('layers_invocation')
+        state['layers_response'] = layer_agent_state.get('layers_response')
+        print('layer_response', state.get('layers_response'))
+        state['plan_additional_context'] = (
+            f"Layer context:\n"
+            f"{state['layers_response'][0].content if hasattr(state['layers_response'][0], 'content') else 'No additional context available'}"
+        )
+        print('plan_additional_context', state.get('plan_additional_context'))
+        # endregion: [PlanAdditionalContex]
         
         if state.get("plan_confirmation") != 'rejected':
             invoke_messages = [
