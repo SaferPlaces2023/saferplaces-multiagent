@@ -136,7 +136,7 @@ class DataRetrieverInvocationConfirm:
 
     def __init__(self):
         self.name = NodeNames.RETRIEVER_INVOCATION_CONFIRM
-        self.enabled = True
+        self.enabled = False
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         return self.run(state)
@@ -215,7 +215,7 @@ class DataRetrieverInvocationConfirm:
         if validation_state is not None:
             return validation_state
         if self.enabled:
-            return self.run(state)
+            return self.confirm(state)
         state["retriever_invocation_confirmation"] = 'accepted'
         state['retriever_reinvocation_request'] = None
         return state

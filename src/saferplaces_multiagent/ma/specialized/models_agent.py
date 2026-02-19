@@ -134,7 +134,7 @@ class ModelsInvocationConfirm:
 
     def __init__(self):
         self.name = NodeNames.MODELS_INVOCATION_CONFIRM
-        self.enabled = True
+        self.enabled = False
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         return self.run(state)
@@ -213,7 +213,7 @@ class ModelsInvocationConfirm:
         if validation_state is not None:
             return validation_state
         if self.enabled:
-            return self.run(state)
+            return self.confirm(state)
         state["models_invocation_confirmation"] = 'accepted'
         state['models_reinvocation_request'] = None
         return state

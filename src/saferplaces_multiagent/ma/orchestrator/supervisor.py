@@ -176,7 +176,7 @@ class SupervisorPlannerConfirm:
     
     def __init__(self):
         self.name = NodeNames.SUPERVISOR_PLANNER_CONFIRM
-        self.enabled = True
+        self.enabled = False
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         if self.enabled:
