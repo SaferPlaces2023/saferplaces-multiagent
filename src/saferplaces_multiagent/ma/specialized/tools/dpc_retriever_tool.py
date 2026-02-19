@@ -303,15 +303,17 @@ class DPCRetrieverTool(BaseTool):
         }
         
         # DOC: Call the DPC-Retriever API
-        # api_response = requests.post(api_url, json=payload)
-        class ApiResponse200:
-            status_code = 200
-            def json(self):
-                return dict(
-                    uri = 's3://example-bucket/dpc-out/dpc-temperature.tif'
-                )
-                
-        api_response = ApiResponse200()
+        api_response = requests.post(api_url, json=payload)
+        
+        # TEST: Simulate successfull response
+        # class ApiResponse200:
+        #     status_code = 200
+        #     def json(self):
+        #         return {
+        #             "id": "safer-rain-process",
+        #             "water_depth_file": "s3://saferplaces.co/packages/safer_rain/Rimini/cesenatico-small-safer-rain-water.tif"
+        #        } 
+        # api_response = ApiResponse200()
         
         if api_response.status_code != 200:
             return {

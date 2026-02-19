@@ -11,6 +11,7 @@ from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
 from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
+from ..specialized.layers_agent import Prompts as LayersPrompts
 
 
 AGENT_REGISTRY = [
@@ -80,9 +81,12 @@ class Prompts:
         "- Empty plan is valid for informational queries.",
     ))
 
-    PLANNING_PROMPT = staticmethod(lambda parsed_request: '\n'.join((
+    PLANNING_PROMPT = staticmethod(lambda state: '\n'.join((
         "Parsed request:",
-        f"{parsed_request}",
+        f"{state.get('parsed_request', 'No parsed request available')}",
+        "",
+        "Available layers in current session:",
+        LayersPrompts.format_layers_description(state.get("layers_registry", [])),
         "",
         "Available agents:",
         f"{AGENT_REGISTRY}"
@@ -91,9 +95,14 @@ class Prompts:
     REPLANNING_PROMPT = staticmethod(lambda state: '\n'.join((
         "Parsed request:",
         f"{state.get('parsed_request') or 'No parsed request available.'}",
+        "",
+        "Available layers in current session:",
+        LayersPrompts.format_layers_description(state.get("layers_registry", [])),
+        "",
         "User asked to revise the proposed plan",
         "Here is the current plan:",
         f"{state.get('plan') or 'No plan available.'}",
+        "",
         f"User requirements: {state['replan_request'].content}",
         "Produce a new plan that satisfies the user's requirements. You can modify, reorder, adding or remove steps and their goals."
     )))
@@ -136,12 +145,10 @@ class SupervisorAgent:
 
         print(f"[{NodeNames.SUPERVISOR_AGENT}] → Planning...")
         
-        parsed_request = state["parsed_request"]
-
         if state.get("plan_confirmation") != 'rejected':
             invoke_messages = [
                 SystemMessage(content=Prompts.SUPERVISOR_PROMPT),
-                HumanMessage(content=Prompts.PLANNING_PROMPT(parsed_request))
+                HumanMessage(content=Prompts.PLANNING_PROMPT(state))
             ]
         else:
             invoke_messages = [

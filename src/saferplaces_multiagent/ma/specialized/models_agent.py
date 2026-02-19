@@ -11,6 +11,7 @@ from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 from ...nodes.base import base_models
 from .tools.safer_rain_tool import SaferRainTool
+from .layers_agent import Prompts as LayersPrompts
 
 
 # Registry-friendly description for the Models agent.
@@ -41,7 +42,10 @@ class Prompts:
 
     SPECIALIZED_REQUEST = staticmethod(lambda state: '\n'.join((
         f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
-        f"Parsed: {state.get('parsed_request', '')}"
+        f"Parsed: {state.get('parsed_request', '')}",
+        "",
+        "Available layers:",
+        LayersPrompts.format_layers_description(state.get("layers_registry", []))
     )))
 
     SPECIALIZED_RE_REQUEST = staticmethod(lambda state: '\n'.join((
@@ -49,6 +53,10 @@ class Prompts:
         "Some tools needs to be reviewed or corrected.",
         "Here is the current invocation:",
         '\n'.join([tc['name'] + ': ' + str(tc['args']) for tc in state['models_invocation'].tool_calls]),
+        "",
+        "Available layers:",
+        LayersPrompts.format_layers_description(state.get("layers_registry", [])),
+        "",
         f"User response: {state['models_reinvocation_request'].content}",
         "Produce a new sequence of tool calls based on the user's feedback. You can modify arguments, order, adding or deleting tool calls."
     )))

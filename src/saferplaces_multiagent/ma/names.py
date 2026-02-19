@@ -28,6 +28,8 @@ class NodeNames:
     MODELS_INVOCATION_CONFIRM = "models_invocation_confirm"
     MODELS_EXECUTOR = "models_executor"
 
+    LAYERS_AGENT = "layers_agent"
+
     
     DIGITAL_TWIN_AGENT = "digital_twin_agent"
     OPERATIONAL_AGENT = "operational_agent"
