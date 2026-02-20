@@ -14,6 +14,11 @@ from langchain_core.messages import SystemMessage, AnyMessage, AIMessage, ToolMe
 from langgraph.graph import add_messages, MessagesState
 from langchain_core.messages import BaseMessage
 
+from typing import Optional, Union, List, Dict, Any, Literal
+from pydantic import BaseModel, Field
+
+from dataclasses import dataclass, asdict
+
 from . import utils
 
 
@@ -21,9 +26,29 @@ from . import utils
 
 ConfirmationState = Literal["accepted", "rejected", "pending"]
 
+@dataclass
+class Layer:
+    title: str
+    type: Literal["raster", "vector"]
+    src: str
+    description: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        if self.type not in ("raster", "vector"):
+            raise ValueError("Layer.type must be 'raster' or 'vector'")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+    
+class RelevantLayers(TypedDict):
+    layers: List[Layer]
+    is_dirty: bool
+
 class AdditionalContext(TypedDict):
-    source: str
-    payload: Union[str, List[Any], Dict[str, Any]]
+    relevant_layers: RelevantLayers
+
+
 
 class MABaseGraphState(TypedDict):
     """Basic state"""
@@ -42,10 +67,10 @@ class MABaseGraphState(TypedDict):
 
     # DOC: multi-agent metadata
     parsed_request: Dict[str, Any]
+    additional_context: AdditionalContext
     supervisor_next_node: str
     # DOC: handling user-agent conversation flow 
     plan: Optional[List[dict]]
-    plan_additional_context: Optional[List[AdditionalContext]]
     plan_confirmation: ConfirmationState
     replan_request: AnyMessage
     current_step: Optional[int]
@@ -60,7 +85,6 @@ class MABaseGraphState(TypedDict):
 
     # DOC: specialized models agent state
     models_invocation: AIMessage
-    models_additional_context: Optional[List[AdditionalContext]]
     models_invocation_confirmation: ConfirmationState
     models_reinvocation_request: AnyMessage
     models_current_step: Optional[int]

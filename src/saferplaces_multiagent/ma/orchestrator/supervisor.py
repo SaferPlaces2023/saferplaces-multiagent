@@ -1,3 +1,5 @@
+import json
+import ast 
 
 from pydantic import BaseModel, Field
 from typing import Any, List, Dict, Optional
@@ -70,7 +72,7 @@ class Prompts:
         "- Each step (if any) must specify:",
         "  - the agent name",
         "  - the goal of that step",
-        "  - optional tool_hints with hints about additional context to consider",
+        # "  - optional tool_hints with hints about additional context to consider",
         "",
         "Rules:",
         "- Only use agents from the provided registry.",
@@ -120,14 +122,14 @@ class ExecutionPlan(BaseModel):
     class PlanStep(BaseModel):
         agent: str = Field(description="Name of the specialized agent to execute this step")
         goal: str = Field(description="High-level description of what this step should accomplish")
-        tool_hints: Optional[List[str]] = Field(
-            description=(
-                "Optional, non-binding hints about tools and arguments to consider.\n"
-                "Each hint should be a brief string describing explicitly a potential tool or argument that might be useful for this step (but not mandatory).\n"
-                "When specify some hints, be clear in describing their purpose and explicitly including their value if exists.\n"
-                "Keep lightweight; include only if useful."
-            ),
-        )
+        # tool_hints: Optional[List[str]] = Field(
+        #     description=(
+        #         "Optional, non-binding hints about tools and arguments to consider.\n"
+        #         "Each hint should be a brief string describing explicitly a potential tool or argument that might be useful for this step (but not mandatory).\n"
+        #         "When specify some hints, be clear in describing their purpose and explicitly including their value if exists.\n"
+        #         "Keep lightweight; include only if useful."
+        #     ),
+        # )
 
     steps: List[PlanStep]
 
@@ -159,21 +161,26 @@ class SupervisorAgent:
         print(f"[{NodeNames.SUPERVISOR_AGENT}] → Planning...")
 
         # region: [PlanAdditionalContex] layer agent retrieve additional context for a better planification
-        state['layers_request'] = (
-            "User has this request:\n"
-            f"{state.get('parsed_request', 'No parsed request available')} \n"
-            "Retrieve additional context from available layers."
-        )
-        layer_agent_state = self.layer_agent(state)
-        state['layer_registry'] = layer_agent_state.get('layer_registry')
-        state['layers_invocation'] = layer_agent_state.get('layers_invocation')
-        state['layers_response'] = layer_agent_state.get('layers_response')
-        print('layer_response', state.get('layers_response'))
-        state['plan_additional_context'] = (
-            f"Layer context:\n"
-            f"{state['layers_response'][0].content if hasattr(state['layers_response'][0], 'content') else 'No additional context available'}"
-        )
-        print('plan_additional_context', state.get('plan_additional_context'))
+        if state.get('layer_registry') and \
+            ( 
+                len(state.get('additional_context', dict()).get('relevant_layers', dict())) == 0 or 
+                state.get('additional_context', dict()).get('relevant_layers', dict()).get('is_dirty', False)
+            ):
+            state['layers_request'] = (
+                "User has this request:\n"
+                f"{state.get('parsed_request', 'No parsed request available')} \n"
+                "Retrieve the relevant layers from available layers."
+            )
+            layer_agent_state = self.layer_agent(state)
+            state['layer_registry'] = layer_agent_state.get('layer_registry')
+            state['layers_invocation'] = layer_agent_state.get('layers_invocation')
+            state['layers_response'] = layer_agent_state.get('layers_response')
+            state['additional_context'] = dict()
+            state['additional_context']['relevant_layers'] = dict(
+                layers = [ast.literal_eval(lr.content) for lr in layer_agent_state.get('layers_response') or []],
+                is_dirty = False
+            )
+            print('additional_context.relevant_layers', state.get('additional_context', dict()).get('relevant_layers'))
         # endregion: [PlanAdditionalContex]
         
         if state.get("plan_confirmation") != 'rejected':

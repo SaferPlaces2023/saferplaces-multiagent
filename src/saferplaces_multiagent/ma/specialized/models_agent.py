@@ -1,5 +1,6 @@
 from typing import Any, Optional, List, Dict
 import os
+import json
 
 from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
@@ -37,16 +38,24 @@ class Prompts:
     SPECIALIZED_TOOL_SELECTION = '\n'.join((
         "You are a specialized simulations agent.",
         "Choose the best model/tool to accomplish the goal.",
-        "Only call provided tools and propose reasonable args if missing."
+        "Only call provided tools and propose reasonable args if missing.",
+        "If a tool requires a layer input, select it from Relevant layers when available.",
+        "If no suitable layer exists, do not invent one; state what layer is missing."
     ))
 
     SPECIALIZED_REQUEST = staticmethod(lambda state: '\n'.join((
         f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
         f"Parsed: {state.get('parsed_request', '')}",
-        f"Tool hints: {state['plan'][state['current_step']].get('tool_hints', 'N/A')}",
         "",
-        "Additional context:",
-        f"{state.get('models_additional_context', 'No additional context available')}",   
+        "Relevant layers (use these as inputs if needed):",
+        json.dumps(
+            state.get("additional_context", {}).get("relevant_layers", {}).get("layers", []),
+            ensure_ascii=False
+        ),
+        # f"Tool hints: {state['plan'][state['current_step']].get('tool_hints', 'N/A')}",
+        "",
+        # "Additional context:",
+        # f"{state.get('models_additional_context', 'No additional context available')}",   
         "",
         # "",
         # "Available layers:",
@@ -55,7 +64,7 @@ class Prompts:
 
     SPECIALIZED_RE_REQUEST = staticmethod(lambda state: '\n'.join((
         f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
-        f"Tool hints: {state['plan'][state['current_step']].get('tool_hints', 'N/A')}",
+        # f"Tool hints: {state['plan'][state['current_step']].get('tool_hints', 'N/A')}",
         "",
         "Some tools needs to be reviewed or corrected.",
         "Here is the current invocation:",
@@ -119,21 +128,21 @@ class ModelsAgent:
         print(f"[{NodeNames.MODELS_AGENT}] → Invoking tools...")
 
         # region: [PlanAdditionalContex] layer agent retrieve additional context for a better planification
-        state['layers_request'] = (
-            "The goal of the current step is:\n"
-            f"{state['plan'][state['current_step']].get('goal', 'N/A')} \n"
-            "Retrieve additional context from available layers."
-        )
-        layer_agent_state = self.layer_agent(state)
-        state['layer_registry'] = layer_agent_state.get('layer_registry')
-        state['layers_invocation'] = layer_agent_state.get('layers_invocation')
-        state['layers_response'] = layer_agent_state.get('layers_response')
-        print('layer_response', state.get('layers_response'))
-        state['models_additional_context'] = (
-            f"Layer context:\n"
-            f"{state['layers_response'][0].content if hasattr(state['layers_response'][0], 'content') else 'No additional context available'}"
-        )
-        print('models_additional_context', state.get('models_additional_context'))
+        # state['layers_request'] = (
+        #     "The goal of the current step is:\n"
+        #     f"{state['plan'][state['current_step']].get('goal', 'N/A')} \n"
+        #     "Retrieve additional context from available layers."
+        # )
+        # layer_agent_state = self.layer_agent(state)
+        # state['layer_registry'] = layer_agent_state.get('layer_registry')
+        # state['layers_invocation'] = layer_agent_state.get('layers_invocation')
+        # state['layers_response'] = layer_agent_state.get('layers_response')
+        # print('layer_response', state.get('layers_response'))
+        # state['models_additional_context'] = (
+        #     f"Layer context:\n"
+        #     f"{state['layers_response'][0].content if hasattr(state['layers_response'][0], 'content') else 'No additional context available'}"
+        # )
+        # print('models_additional_context', state.get('models_additional_context'))
         # endregion: [PlanAdditionalContex]
 
         if state.get("models_invocation_confirmation") != 'rejected':

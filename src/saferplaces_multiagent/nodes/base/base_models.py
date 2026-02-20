@@ -13,20 +13,20 @@ _URI_HINT = "HTTP(S) URL, S3 URI (s3://...)"
 PlanConfirmation = Literal["accepted", "rejected", "pending"]
 
 
-@dataclass
-class Layer:
-    title: str
-    type: str  # "raster" or "vector"
-    src: str
-    description: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+# @dataclass
+# class Layer:
+#     title: str
+#     type: str  # "raster" or "vector"
+#     src: str
+#     description: Optional[str] = None
+#     metadata: Optional[Dict[str, Any]] = None
 
-    def __post_init__(self):
-        if self.type not in ("raster", "vector"):
-            raise ValueError("Layer.type must be 'raster' or 'vector'")
+#     def __post_init__(self):
+#         if self.type not in ("raster", "vector"):
+#             raise ValueError("Layer.type must be 'raster' or 'vector'")
 
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+#     def to_dict(self) -> Dict[str, Any]:
+#         return asdict(self)
 
 
 
