@@ -1,16 +1,21 @@
+from typing import Any, Dict, List, Optional
+import json
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
-from langgraph.types import Command, interrupt
+from langgraph.types import interrupt
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
 from .tools.dpc_retriever_tool import DPCRetrieverTool
 from .tools.meteoblue_retriever_tool import MeteoblueRetrieverTool
-from ..names import NodeNames, NodeNames
+from ..names import NodeNames
 
-# Registry-friendly description for the Data Retriever agent.
-# This dictionary follows the shape expected by supervisor.AGENT_REGISTRY
-# (keys: "name", "description", "examples").
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Agent registry description
 SAFERCAST_AGENT_DESCRIPTION = {
     "name": NodeNames.RETRIEVER_AGENT,
     "description": (
@@ -25,259 +30,410 @@ SAFERCAST_AGENT_DESCRIPTION = {
     ]
 }
 
+# Invocation confirmation states
+INVOCATION_PENDING = "pending"
+INVOCATION_ACCEPTED = "accepted"
+INVOCATION_REJECTED = "rejected"
 
-class Prompts:
+# State key constants
+STATE_RETRIEVER_INVOCATION = "retriever_invocation"
+STATE_RETRIEVER_CONFIRMATION = "retriever_invocation_confirmation"
+STATE_RETRIEVER_REINVOCATION_REQUEST = "retriever_reinvocation_request"
+STATE_RETRIEVER_CURRENT_STEP = "retriever_current_step"
+STATE_TOOL_RESULTS = "tool_results"
+
+
+# ============================================================================
+# Prompts
+# ============================================================================
+
+class RetrieverPrompts:
     """Prompts for specialized data retrieval agent."""
 
-    SPECIALIZED_TOOL_SELECTION = '\n'.join((
-        "You are a specialized agent for data retrieval.",
-        "Choose the best tool to accomplish the goal.",
-        "Only call tools that are provided.",
-        "If needed info is missing, still propose the most likely tool call with best-effort args.",
-    ))
+    TOOL_SELECTION_SYSTEM = (
+        "You are a specialized agent for data retrieval.\n"
+        "Choose the best tool to accomplish the goal.\n"
+        "Only call tools that are provided.\n"
+        "If needed info is missing, still propose the most likely tool call with best-effort args."
+    )
 
-    SPECIALIZED_REQUEST = staticmethod(lambda state: '\n'.join((
-        f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
-        f"Parsed: {state.get('parsed_request', '')}",
-        # "",
-        # f"Tool hints:",
-        # f"{state['plan'][state['current_step']].get('tool_hints', 'N/A')}"
-    )))
+    @staticmethod
+    def initial_request(state: MABaseGraphState) -> str:
+        """Generate initial tool invocation prompt."""
+        goal = state["plan"][state["current_step"]].get("goal", "N/A")
+        parsed_request = state.get("parsed_request", "")
+        relevant_layers = (
+            state.get("additional_context", {})
+            .get("relevant_layers", {})
+            .get("layers", [])
+        )
 
-    SPECIALIZED_RE_REQUEST = staticmethod(lambda state: '\n'.join((
-        f"Goal: {state['plan'][state['current_step']].get('goal', 'N/A')}",
-        "Some tools needs to be reviewed or corrected.",
-        "Here is the current invocation:",
-        '\n'.join([tc['name'] + ': ' + str(tc['args']) for tc in state['retriever_invocation'].tool_calls]),
-        f"User response: {state['retriever_reinvocation_request'].content}",
-        "Produce a new sequence of tool calls based on the user's feedback. You can modify arguments, order, adding or deleting tool calls."
-    )))
+        return (
+            f"Goal: {goal}\n"
+            f"Parsed request: {parsed_request}\n"
+            "\n"
+            "Relevant layers (use these as inputs if needed):\n"
+            f"{json.dumps(relevant_layers, ensure_ascii=False)}"
+        )
+
+    @staticmethod
+    def reinvocation_request(state: MABaseGraphState) -> str:
+        """Generate re-invocation prompt after user feedback."""
+        goal = state["plan"][state["current_step"]].get("goal", "N/A")
+        invocation = state[STATE_RETRIEVER_INVOCATION]
+        tool_calls_str = "\n".join(
+            f"  - {tc['name']}: {tc['args']}"
+            for tc in invocation.tool_calls
+        )
+        user_response = state[STATE_RETRIEVER_REINVOCATION_REQUEST].content
+
+        return (
+            f"Goal: {goal}\n"
+            f"Some tools need to be reviewed or corrected.\n"
+            f"Current invocation:\n{tool_calls_str}\n"
+            f"User feedback: {user_response}\n"
+            f"Produce a new sequence of tool calls based on the user's feedback. "
+            f"You can modify arguments, reorder, add, or delete tool calls."
+        )
 
 
+# ============================================================================
+# Tool Registry
+# ============================================================================
 
+class ToolRegistry:
+    """Singleton registry for managing retriever tools."""
 
-class Tools:
-    _instance = None
+    _instance: Optional["ToolRegistry"] = None
+    _tools: Dict[str, Any] = {}
 
-    def __new__(cls):
+    def __new__(cls) -> "ToolRegistry":
         if cls._instance is None:
-            cls._instance = super(Tools, cls).__new__(cls)
-            active_tools = [
-                tool() for tool in [
-                    DPCRetrieverTool,
-                    MeteoblueRetrieverTool
-                ]
-            ]
-            cls._instance._tools = {tool.name: tool for tool in active_tools}
+            cls._instance = super().__new__(cls)
+            cls._instance._initialize_tools()
         return cls._instance
 
+    def _initialize_tools(self) -> None:
+        """Initialize all available retriever tools."""
+        active_tools = [tool() for tool in [DPCRetrieverTool, MeteoblueRetrieverTool]]
+        self._tools = {tool.name: tool for tool in active_tools}
+
     @property
-    def tools(self):
+    def tools(self) -> Dict[str, Any]:
+        """Get all registered tools."""
         return self._tools
-    
-    def get(self, tool_name):
+
+    def get(self, tool_name: str) -> Any:
+        """Get a specific tool by name."""
         return self._tools[tool_name]
 
 
+# ============================================================================
+# Data Retriever Agent
+# ============================================================================
 
 class DataRetrieverAgent:
-    """Specialized agent for data retrieval and tool execution."""
-    
-    def __init__(self):
+    """Specialized agent for data retrieval and tool selection."""
+
+    def __init__(self) -> None:
         self.name = NodeNames.RETRIEVER_AGENT
-        self.tools = Tools().tools
+        self.tools = ToolRegistry().tools
         self.llm = _base_llm.bind_tools(list(self.tools.values()))
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+        """Execute data retrieval agent."""
         return self.run(state)
-    
-    def tool_calls_invocation(self, invocation: AIMessage, state: MABaseGraphState) -> MABaseGraphState | None:
-        if len(getattr(invocation, "tool_calls") or []) == 0:
-            print("NO TOOL CALLS")
-            state["current_step"] += 1
-            state['retriever_invocation'] = invocation
-            state["retriever_invocation_confirmation"] = None
-            state['messages'] = invocation
-            return state
-
-        return None
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        """Main retriever execution logic."""
+        print(f"[{self.name}] → Invoking tools...")
 
+        # Build messages based on confirmation state
+        messages = self._build_invocation_messages(state)
 
-        print(f"[{NodeNames.RETRIEVER_AGENT}] → Invoking tools...")
+        # Invoke LLM with tools
+        invocation = self.llm.invoke(messages)
 
-        if state.get("retriever_invocation_confirmation") != 'rejected':
-            invoke_messages = [
-                SystemMessage(content=Prompts.SPECIALIZED_TOOL_SELECTION),
-                HumanMessage(content=Prompts.SPECIALIZED_REQUEST(state))
-            ]
-        else:
-            invoke_messages = [
-                SystemMessage(content=Prompts.SPECIALIZED_TOOL_SELECTION),
-                HumanMessage(content=Prompts.SPECIALIZED_RE_REQUEST(state))
-            ]
+        # Check if no tool calls were generated
+        if self._has_no_tool_calls(invocation):
+            return self._handle_no_tool_calls(invocation, state)
 
-        print('>>>', [m.content for m in invoke_messages])
-        invocation = self.llm.invoke(invoke_messages)
+        # Store invocation and prepare for confirmation
+        self._prepare_invocation(invocation, state)
 
-        invocation_state = self.tool_calls_invocation(invocation, state)
-        if invocation_state is not None:
-            return invocation_state
-        
-        print(f"[{NodeNames.RETRIEVER_AGENT}] → Tool calls: [{len(invocation.tool_calls)}]: {[call['name'] for call in invocation.tool_calls]}")
-        
-        state['retriever_invocation'] = invocation
-        state["retriever_current_step"] = 0
-        state["retriever_invocation_confirmation"] = 'pending'
-        state['retriever_reinvocation_request'] = None
+        print(
+            f"[{self.name}] → Tool calls: "
+            f"[{len(invocation.tool_calls)}]: "
+            f"{[call['name'] for call in invocation.tool_calls]}"
+        )
 
         return state
-    
+
+    def _build_invocation_messages(self, state: MABaseGraphState) -> List[Any]:
+        """Build messages for LLM invocation."""
+        system_msg = SystemMessage(content=RetrieverPrompts.TOOL_SELECTION_SYSTEM)
+
+        # Choose prompt based on state
+        if state.get(STATE_RETRIEVER_CONFIRMATION) == INVOCATION_REJECTED:
+            human_msg = HumanMessage(content=RetrieverPrompts.reinvocation_request(state))
+        else:
+            human_msg = HumanMessage(content=RetrieverPrompts.initial_request(state))
+
+        return [system_msg, human_msg]
+
+    @staticmethod
+    def _has_no_tool_calls(invocation: AIMessage) -> bool:
+        """Check if invocation has no tool calls."""
+        return len(getattr(invocation, "tool_calls", []) or []) == 0
+
+    @staticmethod
+    def _handle_no_tool_calls(invocation: AIMessage, state: MABaseGraphState) -> MABaseGraphState:
+        """Handle case where LLM didn't generate tool calls."""
+        print("[DataRetrieverAgent] ⚠ No tool calls generated")
+        state["current_step"] += 1
+        state[STATE_RETRIEVER_INVOCATION] = invocation
+        state[STATE_RETRIEVER_CONFIRMATION] = None
+        state["messages"] = invocation
+        return state
+
+    @staticmethod
+    def _prepare_invocation(invocation: AIMessage, state: MABaseGraphState) -> None:
+        """Prepare invocation state for confirmation step."""
+        state[STATE_RETRIEVER_INVOCATION] = invocation
+        state[STATE_RETRIEVER_CURRENT_STEP] = 0
+        state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_PENDING
+        state[STATE_RETRIEVER_REINVOCATION_REQUEST] = None
+
+
+# ============================================================================
+# Data Retriever Invocation Confirmation
+# ============================================================================
 
 class DataRetrieverInvocationConfirm:
+    """Confirmation and validation checkpoint for tool invocations."""
 
-    def __init__(self):
+    def __init__(self, enabled: bool = False) -> None:
         self.name = NodeNames.RETRIEVER_INVOCATION_CONFIRM
-        self.enabled = False
+        self.enabled = enabled
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+        """Execute confirmation logic."""
         return self.run(state)
-    
-    def tool_call_validation(self, tool_call: ToolCall, state: MABaseGraphState) -> MABaseGraphState | None:
-        tool_name = tool_call["name"]
-        tool_args = tool_call.get("args") or dict()
-        tool = Tools().get(tool_name)
 
-        invalid_args = dict()
-        args_validation_rules = tool._set_args_validation_rules()
-
-        for arg in tool.args_schema.model_fields.keys():
-            for rule in args_validation_rules.get(arg, []):
-                invalid_reason = None
-                invalid_reason = rule(**tool_args)
-                if invalid_reason is not None:
-                    invalid_args[arg] = invalid_reason 
-                    continue
-
-        if len(invalid_args) > 0:
-            invalid_message = AIMessage(content=f"Some parameters for '{tool_name}' are invalid.\nDetails: {invalid_args}\nPlease provide the required information.")
-            return invalid_message
-        
-        return None
-    
-    def validate(self, state: MABaseGraphState) -> MABaseGraphState | None:
-        invocation = state["retriever_invocation"]
-        invocation_step = state["retriever_current_step"]
-
-        invalid_invocation_messages = []
-        for tool_call in invocation.tool_calls[invocation_step:]:
-            invalid_reason = self.tool_call_validation(tool_call, state)
-            if invalid_reason is not None:
-                invalid_invocation_messages.append(invalid_reason)
-
-        if len(invalid_invocation_messages) == 0:
-            return None
-        
-        print(f"[{self.name}] ⚠ Validation failed")
-        print(f"Invalid tool calls: {[m.content for m in invalid_invocation_messages]}?",)
-        interruption = interrupt({
-            "content": f"Some tool calls needs to be reviewed or corrected: {[m.content for m in invalid_invocation_messages]}?",
-            "interrupt_type": "invocation-validation"
-        })
-        print('solve interruption', interruption)
-        response = interruption.get('response', 'User did not provide any response.')
-        state["retriever_current_step"] = 0
-        state["retriever_invocation_confirmation"] = 'rejected'
-        state['retriever_reinvocation_request'] = HumanMessage(content=response)
-        return state
-    
-    def confirm(self, state: MABaseGraphState) -> MABaseGraphState:
-        invocation = state.get('retriever_invocation')
-        invocation_confirmed = state.get('retriever_invocation_confirmation')
-        if invocation is not None and len(invocation.tool_calls) > 0 and invocation_confirmed == 'pending':
-            print(f"Do you want to proceed with the tool calls: {invocation.tool_calls}?",)
-            interruption = interrupt({
-                "content": f"Do you want to proceed with the tool calls: {invocation.tool_calls}?",
-                "interrupt_type": "invocation-confirmation"
-            })
-            print('solve interruption', interruption)
-            response = interruption.get('response', 'User did not provide any response.')
-            if response == 'ok':
-                state["retriever_invocation_confirmation"] = 'accepted'
-                state["retriever_reinvocation_request"] = None
-            else:
-                state["retriever_current_step"] = 0
-                state["retriever_invocation_confirmation"] = 'rejected'                
-                state['retriever_reinvocation_request'] = HumanMessage(content=response)
-        
-        return state
-    
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        validation_state = self.validate(state)
+        """Main confirmation workflow."""
+        
+        # Step 1: Validate tool calls
+        validation_state = self._validate_tool_calls(state)
         if validation_state is not None:
             return validation_state
+
+        # Step 2: Request user confirmation (if enabled)
         if self.enabled:
-            return self.confirm(state)
-        state["retriever_invocation_confirmation"] = 'accepted'
-        state['retriever_reinvocation_request'] = None
+            return self._request_user_confirmation(state)
+
+        # Auto-confirm if disabled
+        state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_ACCEPTED
+        state[STATE_RETRIEVER_REINVOCATION_REQUEST] = None
         return state
-    
+
+    def _validate_tool_calls(self, state: MABaseGraphState) -> Optional[MABaseGraphState]:
+        """Validate all pending tool calls."""
+        invocation = state[STATE_RETRIEVER_INVOCATION]
+        if DataRetrieverAgent._has_no_tool_calls(invocation):
+            return None
+        
+        current_step = state[STATE_RETRIEVER_CURRENT_STEP]
+
+        invalid_messages = []
+        for tool_call in invocation.tool_calls[current_step:]:
+            invalid_reason = self._validate_single_tool_call(tool_call, state)
+            if invalid_reason is not None:
+                invalid_messages.append(invalid_reason)
+
+        if not invalid_messages:
+            return None
+
+        # Validation failed: request user intervention
+        print(f"[{self.name}] ⚠ Validation failed")
+        print(f"Invalid tool calls: {[m.content for m in invalid_messages]}")
+
+        return self._handle_validation_failure(invalid_messages, state)
+
+    @staticmethod
+    def _validate_single_tool_call(
+        tool_call: ToolCall, state: MABaseGraphState
+    ) -> Optional[AIMessage]:
+        """Validate a single tool call against its schema."""
+        tool_name = tool_call["name"]
+        tool_args = tool_call.get("args") or {}
+        tool = ToolRegistry().get(tool_name)
+
+        # Get validation rules for this tool
+        validation_rules = tool._set_args_validation_rules()
+
+        # Check each argument
+        invalid_args = {}
+        for arg, rules in validation_rules.items():
+            for rule in rules:
+                invalid_reason = rule(**tool_args)
+                if invalid_reason is not None:
+                    invalid_args[arg] = invalid_reason
+                    break
+
+        if not invalid_args:
+            return None
+
+        # Format validation error message
+        error_msg = f"Parameters for '{tool_name}' are invalid:\n"
+        error_msg += "\n".join(f"  {arg}: {reason}" for arg, reason in invalid_args.items())
+
+        return AIMessage(content=error_msg)
+
+    @staticmethod
+    def _handle_validation_failure(
+        invalid_messages: List[AIMessage], state: MABaseGraphState
+    ) -> MABaseGraphState:
+        """Handle validation failure with user interrupt."""
+        error_content = "\n".join(m.content for m in invalid_messages)
+
+        interruption = interrupt({
+            "content": f"Some tool calls need to be reviewed or corrected:\n{error_content}",
+            "interrupt_type": "invocation-validation"
+        })
+
+        response = interruption.get("response", "User did not provide any response.")
+
+        # Prepare for re-invocation
+        state[STATE_RETRIEVER_CURRENT_STEP] = 0
+        state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_REJECTED
+        state[STATE_RETRIEVER_REINVOCATION_REQUEST] = HumanMessage(content=response)
+
+        return state
+
+    def _request_user_confirmation(self, state: MABaseGraphState) -> MABaseGraphState:
+        """Request user confirmation for tool invocation."""
+        invocation = state.get(STATE_RETRIEVER_INVOCATION)
+        confirmation_state = state.get(STATE_RETRIEVER_CONFIRMATION)
+
+        if invocation is None or not invocation.tool_calls or confirmation_state != INVOCATION_PENDING:
+            return state
+
+        # Format tool calls for display
+        tool_calls_display = "\n".join(
+            f"  - {tc['name']}({tc.get('args')})"
+            for tc in invocation.tool_calls
+        )
+
+        print(f"Do you want to proceed with these tool calls?\n{tool_calls_display}")
+
+        interruption = interrupt({
+            "content": f"Do you want to proceed with the tool calls?\n{tool_calls_display}",
+            "interrupt_type": "invocation-confirmation"
+        })
+
+        response = interruption.get("response", "User did not provide any response.")
+
+        if response == "ok":
+            state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_ACCEPTED
+            state[STATE_RETRIEVER_REINVOCATION_REQUEST] = None
+        else:
+            state[STATE_RETRIEVER_CURRENT_STEP] = 0
+            state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_REJECTED
+            state[STATE_RETRIEVER_REINVOCATION_REQUEST] = HumanMessage(content=response)
+
+        return state
+
+
+# ============================================================================
+# Data Retriever Executor
+# ============================================================================
 
 class DataRetrieverExecutor:
+    """Executor for retriever tool invocations."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.name = NodeNames.RETRIEVER_EXECUTOR
 
-    def tool_call_response(self, tool_call: ToolCall, state: MABaseGraphState) -> MABaseGraphState | None:
-        tool_name = tool_call["name"]
-        tool_args = tool_call.get("args") or dict()
-        tool = Tools().get(tool_name)
+    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+        """Execute tool calls."""
+        return self.run(state)
 
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        """Main execution logic."""
+        invocation = state[STATE_RETRIEVER_INVOCATION]
+        if DataRetrieverAgent._has_no_tool_calls(invocation):
+            state["current_step"] += 1
+            state["messages"] = [invocation]
+            return state
+
+        current_step = state[STATE_RETRIEVER_CURRENT_STEP]
+
+        tool_responses = []
+
+        # Execute each pending tool call
+        for tool_call in invocation.tool_calls[current_step:]:
+            print(f"[{self.name}] → Executing: {tool_call['name']}")
+
+            tool_response = self._execute_tool_call(tool_call, state)
+            tool_responses.append(tool_response)
+
+            print(f"[{self.name}] ✓ Response: {tool_response.content[:100]}...")
+
+        # Update state with results
+        state["current_step"] += 1
+        state["messages"] = [invocation, *tool_responses]
+
+        print(f"[{self.name}] ✓ Execution complete")
+
+        return state
+
+    def _execute_tool_call(self, tool_call: ToolCall, state: MABaseGraphState) -> ToolMessage:
+        """Execute a single tool call and return response."""
+        tool_name = tool_call["name"]
+        tool_args = tool_call.get("args") or {}
+        tool = ToolRegistry().get(tool_name)
+
+        # Execute tool
         result = tool._execute(**tool_args)
 
-        state.setdefault("tool_results", {})
-        state["tool_results"][f"step_{state['current_step']}"] = state["tool_results"].get(f"step_{state['current_step']}") or []
-        state["tool_results"][f"step_{state['current_step']}"].append({
-            "tool": tool_name,
-            "args": tool_args,
-            "result": result
-        })
-        state["retriever_current_step"] += 1 # Assume no errors (then fix this only if no errors)
+        # Record result
+        self._record_tool_result(tool_name, tool_args, result, state)
 
+        # Format tool response message
         tool_response = ToolMessage(
-            content=f"""Layer generated:
-- Title: {tool_name.replace('_', ' ').title()} retrieved data layer.
-- URI: 's3://example-bucket/{tool_name}-out/{tool_args.get('variable', 'data')}.tif'
-- Parameters: {tool_args}""",
+            content=(
+                f"Layer generated:\n"
+                f"- Title: {tool_name.replace('_', ' ').title()} Retrieved Data\n"
+                f"- URI: s3://example-bucket/{tool_name}-out/{tool_args.get('variable', 'data')}.tif\n"
+                f"- Parameters: {tool_args}"
+            ),
             tool_call_id=tool_call["id"]
         )
 
         return tool_response
 
+    @staticmethod
+    def _record_tool_result(
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        result: Any,
+        state: MABaseGraphState
+    ) -> None:
+        """Record tool execution result in state."""
+        current_step = state["current_step"]
+        step_key = f"step_{current_step}"
 
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        return self.run(state)
-    
-    def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        
-        invocation = state["retriever_invocation"]
-        invocation_step = state["retriever_current_step"]
-        
-        tool_response_seq = []
-        
-        for tool_call in invocation.tool_calls[invocation_step:]:
-            print(f"[{self.name}] → Tool: {tool_call['name']}")
-            
-            tool_response = self.tool_call_response(tool_call, state)
-            
-            tool_response_seq.append(tool_response)
-            
-            print(f"[{self.name}] → Tool response: {tool_response}")
+        if STATE_TOOL_RESULTS not in state:
+            state[STATE_TOOL_RESULTS] = {}
 
-        state["current_step"] += 1
-        state["messages"] = [invocation, *tool_response_seq]
-        
-        print(f"[{self.name}] ✓ Done")
+        if step_key not in state[STATE_TOOL_RESULTS]:
+            state[STATE_TOOL_RESULTS][step_key] = []
 
-        return state
+        state[STATE_TOOL_RESULTS][step_key].append({
+            "tool": tool_name,
+            "args": tool_args,
+            "result": result
+        })
+
+        state[STATE_RETRIEVER_CURRENT_STEP] += 1
