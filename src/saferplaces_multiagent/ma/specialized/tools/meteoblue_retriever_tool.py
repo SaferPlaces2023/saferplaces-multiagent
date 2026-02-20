@@ -12,7 +12,7 @@ from langchain_core.tools import BaseTool
 from ....common import utils, s3_utils
 from ....common import states as GraphStates
 from ....common import names as N
-from ....nodes.base import base_models
+from ....common import base_models
 
 from . import _validators as validators
 from . import _inferrers as inferrers

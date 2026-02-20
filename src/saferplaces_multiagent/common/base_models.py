@@ -1,16 +1,16 @@
-from typing import Optional, Union, List, Dict, Any, Literal
+from typing import Optional, TypedDict, Union, List, Dict, Any, Literal
 
 from dataclasses import dataclass, asdict
 from pydantic import BaseModel, Field, AliasChoices, field_validator, model_validator
 
 import datetime
 
-from ...common import utils
+from . import utils
 
 
 _URI_HINT = "HTTP(S) URL, S3 URI (s3://...)"
 
-PlanConfirmation = Literal["accepted", "rejected", "pending"]
+# PlanConfirmation = Literal["accepted", "rejected", "pending"]
 
 
 # @dataclass
@@ -27,6 +27,30 @@ PlanConfirmation = Literal["accepted", "rejected", "pending"]
 
 #     def to_dict(self) -> Dict[str, Any]:
 #         return asdict(self)
+
+ConfirmationState = Literal["accepted", "rejected", "pending"]
+
+@dataclass
+class Layer:
+    title: str
+    type: Literal["raster", "vector"]
+    src: str
+    description: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        if self.type not in ("raster", "vector"):
+            raise ValueError("Layer.type must be 'raster' or 'vector'")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+    
+class RelevantLayers(TypedDict):
+    layers: List[Layer]
+    is_dirty: bool
+
+class AdditionalContext(TypedDict):
+    relevant_layers: RelevantLayers
 
 
 

@@ -7,7 +7,8 @@ from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage
 
-from ...common.states import MABaseGraphState, Layer
+from ...common.states import MABaseGraphState
+from ...common.base_models import Layer
 from ...common.utils import _base_llm
 # from ...nodes.base.base_models import Layer
 from ..names import NodeNames

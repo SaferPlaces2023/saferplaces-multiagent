@@ -20,33 +20,12 @@ from pydantic import BaseModel, Field
 from dataclasses import dataclass, asdict
 
 from . import utils
+from .base_models import AdditionalContext, ConfirmationState
 
 
 # DOC: This is a basic state that will be used by all nodes in the graph. It ha one key: "messages" : list[AnyMessage]
 
-ConfirmationState = Literal["accepted", "rejected", "pending"]
 
-@dataclass
-class Layer:
-    title: str
-    type: Literal["raster", "vector"]
-    src: str
-    description: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-    def __post_init__(self):
-        if self.type not in ("raster", "vector"):
-            raise ValueError("Layer.type must be 'raster' or 'vector'")
-
-    def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
-    
-class RelevantLayers(TypedDict):
-    layers: List[Layer]
-    is_dirty: bool
-
-class AdditionalContext(TypedDict):
-    relevant_layers: RelevantLayers
 
 
 

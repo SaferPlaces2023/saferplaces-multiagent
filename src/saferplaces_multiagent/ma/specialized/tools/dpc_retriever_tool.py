@@ -16,7 +16,7 @@ from langchain_core.callbacks import (
 from ....common import utils, s3_utils
 from ....common import states as GraphStates
 from ....common import names as N
-from ....nodes.base import base_models
+from ....common import base_models
 
 
 from typing import Optional, List, Literal

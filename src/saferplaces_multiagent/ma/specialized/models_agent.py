@@ -10,7 +10,7 @@ from langgraph.types import Command, interrupt
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
-from ...nodes.base import base_models
+from ...common import base_models
 from .tools.safer_rain_tool import SaferRainTool
 from .layers_agent import Prompts as LayersPrompts, LayersAgent
 
