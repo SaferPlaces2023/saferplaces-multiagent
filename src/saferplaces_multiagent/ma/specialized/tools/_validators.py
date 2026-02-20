@@ -78,8 +78,31 @@ def time_within_days(field: str, days: int) -> Callable:
         return None
     return validator
 
+def time_before(field: str, other_field: str) -> Callable:
+    """
+    Validator factory: check if time is before another time field.
+    
+    Args:
+        field: Name of the time field to validate
+        other_field: Name of the other time field to compare against
+    
+    Returns:
+        Validator function that returns error message or None
+    """
+    def validator(**kwargs) -> Optional[str]:
+        time_str = kwargs.get(field)
+        other_time_str = kwargs.get(other_field)
+        if not (time_str and other_time_str):
+            return None
+        if parse_dt(time_str) >= parse_dt(other_time_str):
+            field_label = field.replace('_', ' ').title()
+            other_label = other_field.replace('_', ' ').title()
+            return f"{field_label} {time_str} must be before {other_label} {other_time_str}"
+        return None
+    return validator
 
-def time_before(field: str, reference_time: datetime.datetime, label: str = "current time") -> Callable:
+
+def time_before_datetime(field: str, reference_time: datetime.datetime, label: str = "current time") -> Callable:
     """
     Validator factory: check if time is before reference.
     
@@ -122,5 +145,27 @@ def time_after(field: str, other_field: str) -> Callable:
             field_label = field.replace('_', ' ').title()
             other_label = other_field.replace('_', ' ')
             return f"{field_label} {time_str} must be after {other_label} {other_time_str}"
+        return None
+    return validator
+
+def time_after_datetime(field: str, reference_date: datetime.date, label: str = "current date") -> Callable:
+    """
+    Validator factory: check if time is after a specific date.
+    
+    Args:
+        field: Name of the time field to validate
+        reference_date: Reference date to compare against
+        label: Label for the reference date in error message (default: "current date")
+    
+    Returns:
+        Validator function that returns error message or None
+    """
+    def validator(**kwargs) -> Optional[str]:
+        time_str = kwargs.get(field)
+        if not time_str:
+            return None
+        if parse_dt(time_str).date() <= reference_date:
+            field_label = field.replace('_', ' ').title()
+            return f"{field_label} {time_str} must be after {label} {reference_date}"
         return None
     return validator

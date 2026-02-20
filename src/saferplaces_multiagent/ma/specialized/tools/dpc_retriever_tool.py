@@ -1,35 +1,23 @@
 import os
-import datetime
-from dateutil import relativedelta
-from enum import Enum
-import requests
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Literal, Optional
 
-from typing import Optional, Union, List, Dict, Any, Literal
-from pydantic import BaseModel, Field, AliasChoices, field_validator, model_validator
+from pydantic import BaseModel, Field
+from langchain_core.tools import BaseTool
+from langchain_core.callbacks import CallbackManagerForToolRun
 
-from langchain_core.messages import SystemMessage
-from langchain_core.callbacks import (
-    AsyncCallbackManagerForToolRun,
-    CallbackManagerForToolRun,
-)
-
-from ....common import utils, s3_utils
-from ....common import states as GraphStates
+from ....common import s3_utils
 from ....common import names as N
 from ....common import base_models
-
-
-from typing import Optional, List, Literal
-from pydantic import BaseModel, Field, model_validator
-from datetime import timezone
-
-from langchain_core.tools import BaseTool
-
 from . import _validators as validators
 from . import _inferrers as inferrers
 
 
-# ---- Product enum (allowed values) ----
+# ============================================================================
+# Constants
+# ============================================================================
+
+# DPC Product Codes
 DPCProductCode = Literal[
     "VMI",          # Vertical Maximum Intensity (max reflectivity, dBZ) – ~5min
     "SRI",          # Surface Rainfall Intensity (mm/h from radar + rain gauges) – ~5min
@@ -44,358 +32,365 @@ DPCProductCode = Literal[
     "AMV",          # Atmospheric Motion Vectors (wind in upper levels, 50x50 km grid) – ~20min
     "HRD",          # Heavy Rain Detection (multi-sensor severe rainfall index) – ~5min
     "RADAR_STATUS", # Radar site status (ON/OFF)
-    "CAPPI1", "CAPPI2", "CAPPI3", "CAPPI4", "CAPPI5", "CAPPI6", "CAPPI7", "CAPPI8"  # CAPPI reflectivity at fixed altitude (1–8 km) – ~10min
+    "CAPPI1", "CAPPI2", "CAPPI3", "CAPPI4", "CAPPI5", 
+    "CAPPI6", "CAPPI7", "CAPPI8"  # CAPPI reflectivity at fixed altitude (1–8 km) – ~10min
 ]
-DPCProductCodeValues = list(DPCProductCode.__args__)
 
-DPCBoundingBox = {'west': 4.5233915, 'south': 35.0650858, 'east': 20.4766085, 'north': 47.8489892}  # DOC: DPC data bbox → (west, south, east, north) for Italy in EPSG:4326
+DPC_PRODUCT_CODES = list(DPCProductCode.__args__)
+
+# Geographic coverage for Italy
+DPC_ITALY_BBOX = {
+    'west': 4.5233915,
+    'south': 35.0650858,
+    'east': 20.4766085,
+    'north': 47.8489892
+}
+
+# API configuration
+DPC_DATA_DELAY_MINUTES = 10  # DPC data has 10-minute delay
+
+# Response status constants
+STATUS_SUCCESS = "success"
+STATUS_ERROR = "error"
 
 
-# ---- Main schema ----
+# ============================================================================
+# Schema
+# ============================================================================
+
 class DPCRetrieverSchema(BaseModel):
     """
-    Retrieve meteorological products from the Italian Civil Protection Department (DPC).
+    Schema for retrieving meteorological products from the Italian Civil Protection Department (DPC).
 
-    This tool downloads a wide variety of **real-time and historical meteorological datasets**
-    from the DPC API for a **specific geographic area** and **time window**.
+    This tool downloads real-time and historical meteorological datasets from the DPC API
+    for a specific geographic area and time window.
 
-    **Preferred parameters for the LLM:**
-    - `bbox` (west, south, east, north) in EPSG:4326 to define the geographic extent.
-    - `time_start` and `time_end` in ISO8601 format to specify the time range.
+    Preferred parameters:
+      - `bbox` (west, south, east, north) in EPSG:4326
+      - `time_start` and `time_end` in ISO8601 format
 
-    **Fallback parameters (for compatibility):**
-    - `lat_range` + `long_range` as lists `[min, max]` for latitude and longitude.
-    - `time_range` as a list `[start, end]` in ISO8601.
-
-    The `product` field determines **which dataset** to retrieve, such as precipitation,
-    reflectivity, lightning strikes, or cloud cover.
+    Fallback parameters (for compatibility):
+      - `lat_range` + `long_range` as lists [min, max]
+      - `time_range` as list [start, end] in ISO8601
     """
 
-    # ---- WHAT to retrieve ----
+    # Product selection
     product: DPCProductCode = Field(
         ...,
-        title="DPC Product",
+        title="DPC Product Code",
         description=(
             "The code of the DPC dataset to retrieve. Examples:\n"
-            "- `SRI`: Surface Rainfall Intensity (mm/h)\n"
-            "- `VMI`: Vertical Maximum Intensity (max reflectivity, dBZ)\n"
-            "- `SRT1/3/6/12/24`: Cumulative precipitation over different time intervals\n"
-            "- `IR108`: Cloud cover from MSG IR 10.8 satellite imagery\n"
-            "- `TEMP`: Interpolated temperature map from ground stations\n"
-            "- `LTG`: Lightning strike frequency map\n"
-            "- `AMV`: Upper-level wind vectors (Atmospheric Motion Vectors)\n"
-            "- `HRD`: Heavy Rain Detection (multi-sensor severe rainfall index)\n"
-            "- `RADAR_STATUS`: Status of radar network sites\n"
-            "- `CAPPI1..8`: Reflectivity at fixed altitudes from 1 to 8 km"
+            "• SRI: Surface Rainfall Intensity (mm/h)\n"
+            "• VMI: Vertical Maximum Intensity (max reflectivity, dBZ)\n"
+            "• SRT1/3/6/12/24: Cumulative precipitation over time intervals\n"
+            "• IR108: Cloud cover from satellite imagery\n"
+            "• TEMP: Interpolated temperature map\n"
+            "• LTG: Lightning strike frequency\n"
+            "• AMV: Upper-level wind vectors\n"
+            "• HRD: Heavy Rain Detection index\n"
+            "• RADAR_STATUS: Radar network status\n"
+            "• CAPPI1..8: Reflectivity at fixed altitudes (1-8 km)"
         ),
-        examples=["SRI"],
+        examples=["SRI", "VMI", "SRT24"]
     )
 
-    # ---- WHERE (preferred) ----
+    # Geographic extent (preferred)
     bbox: Optional[base_models.BBox] = Field(
         default=None,
         title="Bounding Box",
-        description=f"Geographic extent in EPSG:4326 with named keys: west, south, east, north. Full coverage (Italy) is given by {DPCBoundingBox}.",
-        examples=[{"west": 10.0, "south": 44.0, "east": 12.0, "north": 46.0}],
+        description=f"Geographic extent in EPSG:4326 (west, south, east, north). Default coverage: {DPC_ITALY_BBOX}",
+        examples=[{"west": 10.0, "south": 44.0, "east": 12.0, "north": 46.0}]
     )
 
-    # ---- WHERE (fallback) ----
+    # Geographic extent (fallback)
     lat_range: Optional[List[float]] = Field(
         default=None,
-        title="Latitude Range (fallback)",
-        description="Latitude range as [lat_min, lat_max] in EPSG:4326. Prefer using `bbox`.",
-        examples=[[44.0, 46.0]],
+        title="Latitude Range",
+        description="Latitude range [min, max] in EPSG:4326. Prefer using bbox.",
+        examples=[[44.0, 46.0]]
     )
     long_range: Optional[List[float]] = Field(
         default=None,
-        title="Longitude Range (fallback)",
-        description="Longitude range as [lon_min, lon_max] in EPSG:4326. Prefer using `bbox`.",
-        examples=[[10.0, 12.0]],
+        title="Longitude Range",
+        description="Longitude range [min, max] in EPSG:4326. Prefer using bbox.",
+        examples=[[10.0, 12.0]]
     )
 
-    # ---- WHEN (preferred) ----
+    # Time window (preferred)
     time_start: Optional[str] = Field(
         default=None,
-        title="Start Time (ISO8601)",
-        description="Start timestamp for the data query in ISO8601 format, e.g., 2025-09-18T00:00:00Z.",
-        examples=["2025-09-18T00:00:00Z"],
+        title="Start Time",
+        description="Start timestamp in ISO8601 format (e.g., 2025-09-18T00:00:00Z)",
+        examples=["2025-09-18T00:00:00Z"]
     )
     time_end: Optional[str] = Field(
         default=None,
-        title="End Time (ISO8601)",
-        description="End timestamp for the data query in ISO8601 format. Must be greater than `time_start`.",
-        examples=["2025-09-18T06:00:00Z"],
+        title="End Time",
+        description="End timestamp in ISO8601 format. Must be after time_start.",
+        examples=["2025-09-18T06:00:00Z"]
     )
 
-    # ---- WHEN (fallback) ----
+    # Time window (fallback)
     time_range: Optional[List[str]] = Field(
         default=None,
-        title="Time Range (fallback)",
-        description="Time range as [start, end] in ISO8601 format. Prefer using `time_start` and `time_end`.",
-        examples=[["2025-09-18T00:00:00Z", "2025-09-18T06:00:00Z"]],
+        title="Time Range",
+        description="Time range [start, end] in ISO8601. Prefer using time_start/time_end.",
+        examples=[["2025-09-18T00:00:00Z", "2025-09-18T06:00:00Z"]]
     )
 
-    # ---- OUTPUT ----
+    # Output options
     out: Optional[str] = Field(
         default=None,
         title="Local Output Path",
-        description="Local file path where the retrieved data will be saved.",
-        examples=["/tmp/dpc/result.geojson"],
+        description="Local file path where retrieved data will be saved.",
+        examples=["/tmp/dpc/result.geojson"]
     )
 
     out_format: Optional[Literal["geojson", "dataframe"]] = Field(
         default=None,
-        title="Return Format",
-        description=(
-            'Format of the returned data when not saving to a file. '
-            'Allowed values: `"geojson"` or `"dataframe"`. Default is `"geojson"`.'
-        ),
-        examples=["geojson"],
+        title="Output Format",
+        description="Format for returned data: 'geojson' or 'dataframe'. Default: 'geojson'.",
+        examples=["geojson"]
     )
 
     bucket_destination: Optional[str] = Field(
         default=None,
-        title="Destination S3 Bucket (Optional)",
+        title="S3 Destination",
         description=(
-            "AWS S3 bucket where the data will be stored. Format: `s3://bucket/path`.\n\n"
-            "If neither `out` nor `bucket_destination` are provided, the output will "
-            "be returned in-memory in the format specified by `out_format` "
-            "(default: GeoJSON FeatureCollection)."
+            "AWS S3 bucket for storing data (format: s3://bucket/path). "
+            "If neither out nor bucket_destination provided, returns in-memory data."
         ),
-        examples=["s3://my-dest/dpc/results"],
+        examples=["s3://my-dest/dpc/results"]
     )
 
     debug: Optional[bool] = Field(
         default=False,
         title="Debug Mode",
-        description="Enable verbose logging and diagnostics for troubleshooting.",
-        examples=[True],
+        description="Enable verbose logging for troubleshooting.",
+        examples=[True]
     )
 
+
+# ============================================================================
+# DPC Retriever Tool
+# ============================================================================
 
 class DPCRetrieverTool(BaseTool):
     """
     Tool for retrieving meteorological products from the Italian Civil Protection Department (DPC).
 
-    This tool allows you to **download and query real-time and historical meteorological datasets** 
-    provided by the DPC. It is designed for use cases such as severe weather monitoring, 
-    precipitation tracking, and environmental analysis.
-
-    Supported features:
-      - Select a specific **DPC product** such as rainfall intensity (SRI), reflectivity (VMI), 
-        cumulative precipitation (SRT1/3/6/12/24), cloud cover (IR108), temperature (TEMP),
-        lightning strikes (LTG), upper-level wind vectors (AMV), or radar network status.
-      - Define the **geographic area** using a bounding box (`bbox`) in EPSG:4326.
-      - Specify the **time window** with `time_start` and `time_end` (ISO8601).
-      - Save retrieved data **locally** or **upload directly to AWS S3**.
-      - Return data in multiple formats (`geojson` or `dataframe`).
+    Features:
+      • Download real-time and historical meteorological datasets
+      • Support for multiple products: rainfall, reflectivity, temperature, lightning, etc.
+      • Define geographic area with bounding box (EPSG:4326)
+      • Specify time window with ISO8601 timestamps
+      • Save locally or upload to AWS S3
+      • Return data as GeoJSON or DataFrame
 
     Example use cases:
-      - "Retrieve rainfall intensity for northern Italy in the last 6 hours."
-      - "Get cloud cover and lightning strike data for a specific area and save to S3."
-      - "Download cumulative precipitation over 24 hours for monitoring flood risks."
-
-    Output behavior:
-      - If `bucket_destination` or `out` is provided → data will be saved to that location.
-      - If neither is provided → data is returned **in-memory** in the format specified by `out_format` (default: GeoJSON FeatureCollection).
+      • "Retrieve rainfall intensity for northern Italy in the last 6 hours"
+      • "Get cloud cover and lightning data for a specific area"
+      • "Download 24-hour cumulative precipitation for flood monitoring"
     """
 
-    def __init__(self, **kwargs: Any):
-        """
-        Initialize the DPCRetrieverTool.
-
-        Args:
-            **kwargs**: Additional keyword arguments forwarded to BaseAgentTool.
-        """
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize the DPC Retriever Tool."""
         super().__init__(
             name=N.DPC_RETRIEVER_TOOL,
             description=(
-                "Use this tool to **retrieve meteorological datasets** from the Italian Civil Protection Department (DPC).\n\n"
-                "Typical usage:\n"
-                "- Specify `product` (e.g., SRI for rainfall intensity, VMI for reflectivity, IR108 for cloud cover).\n"
-                "- Define the target **area** with a `bbox` (west, south, east, north) in EPSG:4326.\n"
-                "- Set the **time window** using `time_start` and `time_end` (ISO8601).\n"
-                "- Optionally provide `bucket_destination` or `out` to save results, "
-                "or return them directly in memory as GeoJSON or DataFrame.\n\n"
-                "Ideal for scenarios involving precipitation analysis, storm tracking, "
-                "radar network monitoring, and other real-time weather-related tasks."
+                "Retrieve meteorological datasets from the Italian Civil Protection Department (DPC).\n\n"
+                "Usage:\n"
+                "• Specify product (e.g., SRI, VMI, IR108)\n"
+                "• Define area with bbox (west, south, east, north) in EPSG:4326\n"
+                "• Set time window using time_start and time_end (ISO8601)\n"
+                "• Optionally save to bucket_destination or out path\n\n"
+                "Ideal for precipitation analysis, storm tracking, radar monitoring, "
+                "and real-time weather tasks."
             ),
             args_schema=DPCRetrieverSchema,
             **kwargs
         )
 
-    def _set_args_validation_rules(self) -> dict:
-        """Validation rules for tool arguments."""
-        now = datetime.datetime.now(tz=timezone.utc)
+    def _set_args_validation_rules(self) -> Dict[str, List]:
+        """Define validation rules for tool arguments."""
+        now = datetime.now(tz=timezone.utc)
         
         return {
-            'product': [validators.value_in_list('product', DPCProductCodeValues)],
-            'bbox': [validators.bbox_inside('bbox', DPCBoundingBox)],
+            'product': [
+                validators.value_in_list('product', DPC_PRODUCT_CODES)
+            ],
+            'bbox': [
+                validators.bbox_inside('bbox', DPC_ITALY_BBOX)
+            ],
             'time_start': [
                 validators.time_within_days('time_start', 7),
-                validators.time_before('time_start', now),
+                validators.time_before_datetime('time_start', now)
             ],
             'time_end': [
                 validators.time_within_days('time_end', 7),
                 validators.time_after('time_end', 'time_start'),
-                validators.time_before('time_end', now),
-            ],
+                validators.time_before_datetime('time_end', now)
+            ]
         }
-    
 
-    def _set_args_inference_rules(self) -> dict:
-        """Inference rules for tool arguments."""
-        DPC_DELAY_MINUTES = 10  # DPC data has 10-minute delay
-        
-        def infer_bucket_destination(**kwargs):
+    def _set_args_inference_rules(self) -> Dict[str, Any]:
+        """Define inference rules for missing arguments."""
+        def infer_bucket_destination(**kwargs: Any) -> str:
+            """Infer default S3 bucket destination."""
             return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/dpc-out"
         
         return {
             'time_range': inferrers.infer_time_range(
                 default_hours_back=1,
-                delay_minutes=DPC_DELAY_MINUTES
+                delay_minutes=DPC_DATA_DELAY_MINUTES
             ),
             'time_start': inferrers.infer_time_start(
                 default_hours_back=1,
-                delay_minutes=DPC_DELAY_MINUTES
+                delay_minutes=DPC_DATA_DELAY_MINUTES
             ),
             'time_end': inferrers.infer_time_end(
-                delay_minutes=DPC_DELAY_MINUTES
+                delay_minutes=DPC_DATA_DELAY_MINUTES
             ),
-            'bucket_destination': infer_bucket_destination,
+            'bucket_destination': infer_bucket_destination
         }
-    
 
-    # DOC: Execute the tool → Build notebook, write it to a file and return the path to the notebook and the zarr output file
-    def _execute(
-        self,
-        /,
-        **kwargs: Any
-    ): 
-        # DOC: Call the SaferBuildings API ...
-        api_url = f"{os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5002')}/processes/dpc-retriever-process/execution"
-        
-        kwargs = {
+    def _execute(self, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Execute the DPC retriever tool.
+
+        Args:
+            **kwargs: Tool arguments validated and inferred
+
+        Returns:
+            Dict with status and tool_output or error message
+        """
+        # Build API payload
+        payload = self._build_api_payload(kwargs)
+
+        # Call DPC API
+        api_response = self._call_dpc_api(payload)
+
+        # Process response
+        return self._process_api_response(api_response, kwargs)
+
+    def _build_api_payload(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Build API request payload from tool arguments."""
+        tool_args = {
             'product': kwargs['product'],
-            # 'lat_range': kwargs['bbox']['lat_range'],
-            # 'long_range': kwargs['bbox']['long_range'],
             'time_range': [
-                # datetime.datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
-                # datetime.datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
-            ],
-            # 'bucket_destination': kwargs['bucket_destination']
+                # Note: Uncomment when ready to use actual time parameters
+                # datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
+                # datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
+            ]
         }
-        
-        credentials_args = {
-            'token': os.getenv("SAFERCAST_API_TOKEN"),
+
+        credentials = {
+            'token': os.getenv("SAFERCAST_API_TOKEN")
         }
-        
-        debug_args = {
-            'debug': kwargs.get('debug', True),     # TODO: use a global _is_debug_mode() to set this
+
+        debug_config = {
+            'debug': kwargs.get('debug', True)
         }
-        
-        payload = {
+
+        return {
             'inputs': {
-                **kwargs,                   # DOC: Unpack the tool arguments
-                **credentials_args,         # DOC: Add credentials
-                **debug_args                # DOC: Add debug mode
+                **tool_args,
+                **credentials,
+                **debug_config
             }
         }
-        
-        # DOC: Call the DPC-Retriever API
-        # api_response = requests.post(api_url, json=payload)
-        
-        # TEST: Simulate successfull response
-        class ApiResponse200:
+
+    def _call_dpc_api(self, payload: Dict[str, Any]) -> Any:
+        """
+        Call the DPC Retriever API.
+
+        Args:
+            payload: Request payload
+
+        Returns:
+            API response object
+        """
+        api_url = self._get_api_url()
+
+        # TODO: Uncomment when ready for production
+        # import requests
+        # return requests.post(api_url, json=payload)
+
+        # Temporary mock response for testing
+        return self._mock_api_response()
+
+    @staticmethod
+    def _get_api_url() -> str:
+        """Get DPC Retriever API URL from environment."""
+        api_root = os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5002')
+        return f"{api_root}/processes/dpc-retriever-process/execution"
+
+    @staticmethod
+    def _mock_api_response() -> Any:
+        """Mock API response for testing purposes."""
+        class MockResponse:
             status_code = 200
-            def json(self):
+
+            def json(self) -> Dict[str, str]:
                 return {
                     "uri": "s3://saferplaces.co/packages/examples/dpc-rain.tif"
-                } 
-        api_response = ApiResponse200()
-        
+                }
+
+        return MockResponse()
+
+    def _process_api_response(
+        self, 
+        api_response: Any, 
+        kwargs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Process API response and format tool output.
+
+        Args:
+            api_response: Response from DPC API
+            kwargs: Original tool arguments
+
+        Returns:
+            Formatted tool response
+        """
+        # Check for HTTP errors
         if api_response.status_code != 200:
             return {
-                'status': 'error',
-                'message': f"Failed to execute DPC Retriever API: {api_response.status_code}"
+                'status': STATUS_ERROR,
+                'message': f"DPC API request failed: {api_response.status_code}"
             }
-            
-        api_response = api_response.json()
-        
-        if 'uri' not in api_response:
+
+        # Parse response JSON
+        response_data = api_response.json()
+
+        # Validate response structure
+        if 'uri' not in response_data:
             return {
-                'status': 'error',
-                'message': f"Unexpected response from DPC Retriever API: {api_response}"
+                'status': STATUS_ERROR,
+                'message': f"Unexpected API response format: {response_data}"
             }
-            
+
+        # Return success response
         return {
-            'status': 'success',
+            'status': STATUS_SUCCESS,
             'tool_output': {
-                'data': api_response,
-                'description': f"DPC {kwargs['product']} data.",
+                'data': response_data,
+                'description': f"DPC {kwargs['product']} data retrieved successfully"
             }
         }
-        
-        
-        # REF: [↓↓↓ OLD ↓↓↓]
-        
-        # DOC: If the api call fails, return an error response
-        if api_response.status_code != 200:
-            tool_response = {
-                'tool_response': {
-                    'error': f"Failed to execute DPC Retriever API: {api_response.status_code} - {api_response.text}"
-                }
-            }
-            
-        # DOC: If the API call is successful, process the response 
-        api_response = api_response.json()
-        if 'uri' in api_response:
-            tool_response = {
-                'tool_response': api_response,
-                'updates': {
-                    'layer_registry': self.graph_state.get('layer_registry', []) + [
-                        {
-                            'title': GraphStates.new_layer_title(self.graph_state, f"DPC_{payload['inputs']['product']}"),
-                            'description': f"DPC {payload['inputs']['product']} data for bbox {[kwargs['long_range'][0], kwargs['lat_range'][0], kwargs['long_range'][1], kwargs['lat_range'][1]]} from {payload['inputs']['time_range'][0]} to {payload['inputs']['time_range'][1]}",
-                            'src': api_response['uri'],
-                            'type': 'raster',
-                            'metadata': {
-                                'surface_type': 'rain-timeseries',  # !!!: to be refined based on variable >>> we need a mapping multi-provider-variable → surface-type
-                                ** utils.raster_ts_specs(api_response['uri']),
-                            }
-                        }
-                    ]
-                    if not GraphStates.src_layer_exists(self.graph_state, api_response['uri'])
-                    else []
-                }
-            }    
-            
-        # DOC: If the API call is successful but the response is not as expected, return an error response
-        else:
-            tool_response = {
-                'tool_response': {
-                    'error': f"Unexpected response from DPC Retriever API: {api_response}"
-                }
-            }
-            
-        # DOC: If there is an error in the tool response, update the messages to guide agent's next steps
-        if 'error' in tool_response['tool_response']:
-            tool_response['updates'] = {
-                'messages': [ SystemMessage(content="An error occurred while executing the DPC Retriever tool. Explain the error to the user and then ask him if he wants to retry or not.") ],
-            }
-        
-        return tool_response
-        
-    
-    # DOC: Try running AgentTool → Will check required, validity and inference over arguments thatn call and return _execute()
+
     def _run(
-        self, 
-        /,
-        **kwargs: Any, # dict[str, Any] = None,
-    ) -> dict:
-        
+        self,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """
+        Run the tool (LangChain BaseTool interface).
+
+        Args:
+            **kwargs: Tool arguments
+
+        Returns:
+            Tool execution result
+        """
         run_manager: Optional[CallbackManagerForToolRun] = kwargs.pop("run_manager", None)
-        return super()._run(
-            tool_args = kwargs,
-            run_manager = run_manager
-        )
+        return super()._run(tool_args=kwargs, run_manager=run_manager)

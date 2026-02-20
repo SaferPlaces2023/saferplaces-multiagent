@@ -1,291 +1,346 @@
 import os
-import datetime
-from dateutil import relativedelta
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Literal, Optional
 
-from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field, model_validator
-
-from langchain_core.messages import SystemMessage
-from langchain_core.callbacks import CallbackManagerForToolRun
+from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
+from langchain_core.callbacks import CallbackManagerForToolRun
 
 from ....common import utils, s3_utils
-from ....common import states as GraphStates
 from ....common import names as N
 from ....common import base_models
-
 from . import _validators as validators
 from . import _inferrers as inferrers
 
 
-# ---- Variable enum (allowed values) ----
-Variable = Literal[
-    "SNOWFRACTION",
-    "WINDSPEED",
-    "TEMPERATURE",
-    "PRECIPITATION_PROBABILITY",
-    "CONVECTIVE_PRECIPITATION",
-    "RAINSPOT",
-    "PICTOCODE",
-    "FELTTEMPERATURE",
-    "PRECIPITATION",
-    "ISDAYLIGHT",
-    "UVINDEX",
-    "RELATIVEHUMIDITY",
-    "SEALEVELPRESSURE",
-    "WINDDIRECTION"
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Meteoblue meteorological variables
+MeteoblueVariable = Literal[
+    "SNOWFRACTION",                 # Snow fraction of precipitation
+    "WINDSPEED",                    # Wind speed (m/s)
+    "TEMPERATURE",                  # Air temperature (°C)
+    "PRECIPITATION_PROBABILITY",    # Probability of precipitation (%)
+    "CONVECTIVE_PRECIPITATION",     # Convective precipitation amount
+    "RAINSPOT",                     # Rain spot indicator
+    "PICTOCODE",                    # Weather pictogram code
+    "FELTTEMPERATURE",              # Apparent/felt temperature (°C)
+    "PRECIPITATION",                # Precipitation amount (mm)
+    "ISDAYLIGHT",                   # Daylight indicator
+    "UVINDEX",                      # UV index
+    "RELATIVEHUMIDITY",             # Relative humidity (%)
+    "SEALEVELPRESSURE",             # Sea level pressure (hPa)
+    "WINDDIRECTION"                 # Wind direction (degrees)
 ]
-VariableValues = list(Variable.__args__)
+
+METEOBLUE_VARIABLES = list(MeteoblueVariable.__args__)
+
+# Forecast configuration
+METEOBLUE_DEFAULT_FORECAST_HOURS = 24  # Default forecast window
+METEOBLUE_MAX_FORECAST_DAYS = 14       # Maximum forecast horizon
+
+# Response status constants
+STATUS_SUCCESS = "success"
+STATUS_ERROR = "error"
+STATUS_OK = "OK"
 
 
-# ---- Main schema ----
+# ============================================================================
+# Schema
+# ============================================================================
+
 class MeteoblueRetrieverSchema(BaseModel):
     """
-    Retrieve meteorological forecast data from Meteoblue.
+    Schema for retrieving meteorological forecast data from Meteoblue.
 
     This tool retrieves high-resolution weather forecasts from Meteoblue,
     a global provider of meteorological data. It supports various weather variables
-    and allows users to specify the **geographic area** and **forecast time window**.
+    and allows users to specify the geographic area and forecast time window.
 
-    **Preferred parameters:**
-    - `bbox` (west, south, east, north) in EPSG:4326 to define the geographic extent.
-    - `time_start` and `time_end` in ISO8601 format to specify the forecast period.
+    Preferred parameters:
+      - `bbox` (west, south, east, north) in EPSG:4326
+      - `time_start` and `time_end` in ISO8601 format
 
-    **Fallback parameters (for compatibility):**
-    - `lat_range` + `long_range` as lists `[min, max]` for latitude and longitude.
-    - `time_range` as a list `[start, end]` in ISO8601.
-
-    The `variable` field determines which meteorological parameter to retrieve
-    (e.g., precipitation, temperature, wind).
+    Fallback parameters (for compatibility):
+      - `lat_range` + `long_range` as lists [min, max]
+      - `time_range` as list [start, end] in ISO8601
     """
 
-    # ---- WHAT to retrieve ----
-    variable: Variable = Field(
+    # Variable selection
+    variable: MeteoblueVariable = Field(
         ...,
         title="Meteorological Variable",
         description=(
-            "The meteorological variable to retrieve from Meteoblue. Examples:\n"
-            "- `PRECIPITATION`: Precipitation amount (mm)\n"
-            "- `TEMPERATURE`: Air temperature (°C)\n"
-            "- `WINDSPEED`: Wind speed (m/s)\n"
-            "- `WINDDIRECTION`: Wind direction (degrees)\n"
-            "- `RELATIVEHUMIDITY`: Relative humidity (%)\n"
-            "- `PRECIPITATION_PROBABILITY`: Probability of precipitation (%)\n"
-            "- `SNOWFRACTION`: Snow fraction of precipitation\n"
-            "- `FELTTEMPERATURE`: Apparent/felt temperature (°C)\n"
-            "- `SEALEVELPRESSURE`: Sea level pressure (hPa)\n"
-            "- `UVINDEX`: UV index\n"
-            "- `PICTOCODE`: Weather pictogram code\n"
-            "- `ISDAYLIGHT`: Daylight indicator"
+            "The meteorological variable to retrieve. Examples:\n"
+            "• PRECIPITATION: Precipitation amount (mm)\n"
+            "• TEMPERATURE: Air temperature (°C)\n"
+            "• WINDSPEED: Wind speed (m/s)\n"
+            "• WINDDIRECTION: Wind direction (degrees)\n"
+            "• RELATIVEHUMIDITY: Relative humidity (%)\n"
+            "• PRECIPITATION_PROBABILITY: Probability of precipitation (%)\n"
+            "• SNOWFRACTION: Snow fraction\n"
+            "• FELTTEMPERATURE: Apparent temperature (°C)\n"
+            "• SEALEVELPRESSURE: Sea level pressure (hPa)\n"
+            "• UVINDEX: UV index\n"
+            "• PICTOCODE: Weather pictogram code\n"
+            "• ISDAYLIGHT: Daylight indicator"
         ),
-        examples=["PRECIPITATION"],
+        examples=["PRECIPITATION", "TEMPERATURE", "WINDSPEED"]
     )
 
-    # ---- WHERE (preferred) ----
+    # Geographic extent (preferred)
     bbox: Optional[base_models.BBox] = Field(
         default=None,
         title="Bounding Box",
-        description="Geographic extent in EPSG:4326 with named keys: west, south, east, north.",
-        examples=[{"west": 7.0, "south": 45.0, "east": 7.1, "north": 45.1}],
+        description="Geographic extent in EPSG:4326 (west, south, east, north).",
+        examples=[{"west": 7.0, "south": 45.0, "east": 7.1, "north": 45.1}]
     )
 
-    # ---- WHERE (fallback) ----
+    # Geographic extent (fallback)
     lat_range: Optional[List[float]] = Field(
         default=None,
-        title="Latitude Range (fallback)",
-        description="Latitude range as [lat_min, lat_max] in EPSG:4326. Prefer using `bbox`.",
-        examples=[[45.0, 45.1]],
+        title="Latitude Range",
+        description="Latitude range [min, max] in EPSG:4326. Prefer using bbox.",
+        examples=[[45.0, 45.1]]
     )
     long_range: Optional[List[float]] = Field(
         default=None,
-        title="Longitude Range (fallback)",
-        description="Longitude range as [lon_min, lon_max] in EPSG:4326. Prefer using `bbox`.",
-        examples=[[7.0, 7.1]],
+        title="Longitude Range",
+        description="Longitude range [min, max] in EPSG:4326. Prefer using bbox.",
+        examples=[[7.0, 7.1]]
     )
 
-    # ---- WHEN (preferred) ----
+    # Time window (preferred)
     time_start: Optional[str] = Field(
         default=None,
-        title="Start Time (ISO8601)",
-        description="Forecast start time in ISO8601 format, e.g., 2026-02-18T00:00:00Z.",
-        examples=["2026-02-18T00:00:00Z"],
+        title="Start Time",
+        description="Forecast start time in ISO8601 format (e.g., 2026-02-18T00:00:00Z)",
+        examples=["2026-02-18T00:00:00Z"]
     )
     time_end: Optional[str] = Field(
         default=None,
-        title="End Time (ISO8601)",
-        description="Forecast end time in ISO8601 format. Must be greater than `time_start`.",
-        examples=["2026-02-19T00:00:00Z"],
+        title="End Time",
+        description="Forecast end time in ISO8601 format. Must be after time_start.",
+        examples=["2026-02-19T00:00:00Z"]
     )
 
-    # ---- WHEN (fallback) ----
+    # Time window (fallback)
     time_range: Optional[List[str]] = Field(
         default=None,
-        title="Time Range (fallback)",
-        description="Time range as [start, end] in ISO8601 format. Prefer using `time_start` and `time_end`.",
-        examples=[["2026-02-18T00:00:00Z", "2026-02-19T00:00:00Z"]],
+        title="Time Range",
+        description="Time range [start, end] in ISO8601. Prefer using time_start/time_end.",
+        examples=[["2026-02-18T00:00:00Z", "2026-02-19T00:00:00Z"]]
     )
 
-    # ---- OUTPUT ----
+    # Output options
     out: Optional[str] = Field(
         default=None,
         title="Local Output Path",
-        description="Local file path where the retrieved data will be saved.",
-        examples=["/tmp/meteoblue/result.tif"],
+        description="Local file path where retrieved data will be saved.",
+        examples=["/tmp/meteoblue/result.tif"]
     )
 
     out_format: Optional[str] = Field(
         default="tif",
         title="Output Format",
-        description="Format of the output file. Default is 'tif'.",
-        examples=["tif"],
+        description="Format for returned data. Default: 'tif'.",
+        examples=["tif"]
     )
 
     bucket_source: Optional[str] = Field(
         default=None,
-        title="Source S3 Bucket (Optional)",
+        title="S3 Source Bucket",
         description="AWS S3 bucket where NetCDF source files are stored.",
-        examples=["s3://my-source/meteoblue/"],
+        examples=["s3://my-source/meteoblue/"]
     )
 
     bucket_destination: Optional[str] = Field(
         default=None,
-        title="Destination S3 Bucket (Optional)",
+        title="S3 Destination",
         description=(
-            "AWS S3 bucket where the output data will be stored. Format: `s3://bucket/path`.\n\n"
-            "If neither `out` nor `bucket_destination` are provided, the output will "
-            "be stored in a default S3 location."
+            "AWS S3 bucket for storing output data (format: s3://bucket/path). "
+            "If neither out nor bucket_destination provided, uses default S3 location."
         ),
-        examples=["s3://my-dest/meteoblue-out"],
+        examples=["s3://my-dest/meteoblue-out"]
     )
 
     debug: Optional[bool] = Field(
         default=False,
         title="Debug Mode",
-        description="Enable verbose logging and diagnostics for troubleshooting.",
-        examples=[True],
+        description="Enable verbose logging for troubleshooting.",
+        examples=[True]
     )
 
+
+# ============================================================================
+# Meteoblue Retriever Tool
+# ============================================================================
 
 class MeteoblueRetrieverTool(BaseTool):
     """
     Tool for retrieving meteorological forecast data from Meteoblue.
 
-    This tool allows you to **download and query weather forecast data** from Meteoblue,
-    a global provider of high-resolution meteorological information. It is designed for
-    use cases such as weather forecasting, precipitation prediction, and environmental planning.
-
-    Supported features:
-      - Select a specific **meteorological variable** such as precipitation, temperature,
-        wind speed, humidity, or pressure.
-      - Define the **geographic area** using a bounding box (`bbox`) in EPSG:4326.
-      - Specify the **forecast time window** with `time_start` and `time_end` (ISO8601).
-      - Save retrieved data **locally** or **upload directly to AWS S3**.
-      - Return data in various formats (default: GeoTIFF).
+    Features:
+      • Download weather forecast data from Meteoblue global provider
+      • Support for multiple variables: precipitation, temperature, wind, humidity, etc.
+      • Define geographic area with bounding box (EPSG:4326)
+      • Specify forecast time window with ISO8601 timestamps
+      • Save locally or upload to AWS S3
+      • Return data as GeoTIFF or other formats
 
     Example use cases:
-      - "Retrieve precipitation forecast for northern Italy for the next 24 hours."
-      - "Get temperature and wind speed data for a specific area and save to S3."
-      - "Download humidity forecast for the next 3 days for disaster planning."
-
-    Output behavior:
-      - If `bucket_destination` or `out` is provided → data will be saved to that location.
-      - If neither is provided → data is saved to a default S3 bucket.
+      • "Retrieve precipitation forecast for northern Italy for the next 24 hours"
+      • "Get temperature and wind speed data for a specific area"
+      • "Download humidity forecast for the next 3 days for disaster planning"
     """
 
-    def __init__(self, **kwargs: Any):
-        """
-        Initialize the MeteoblueRetrieverTool.
-
-        Args:
-            **kwargs: Additional keyword arguments forwarded to BaseTool.
-        """
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize the Meteoblue Retriever Tool."""
         super().__init__(
             name=N.METEOBLUE_RETRIEVER_TOOL,
             description=(
-                "Use this tool to **retrieve meteorological forecast data** from Meteoblue.\n\n"
-                "Typical usage:\n"
-                "- Specify `variable` (e.g., PRECIPITATION, TEMPERATURE, WINDSPEED).\n"
-                "- Define the target **area** with a `bbox` (west, south, east, north) in EPSG:4326.\n"
-                "- Set the **forecast time window** using `time_start` and `time_end` (ISO8601).\n"
-                "- Optionally provide `bucket_destination` or `out` to save results.\n\n"
-                "Ideal for scenarios involving weather forecasting, precipitation analysis, "
-                "temperature monitoring, and other meteorological tasks."
+                "Retrieve meteorological forecast data from Meteoblue.\n\n"
+                "Usage:\n"
+                "• Specify variable (e.g., PRECIPITATION, TEMPERATURE, WINDSPEED)\n"
+                "• Define area with bbox (west, south, east, north) in EPSG:4326\n"
+                "• Set forecast window using time_start and time_end (ISO8601)\n"
+                "• Optionally save to bucket_destination or out path\n\n"
+                "Ideal for weather forecasting, precipitation analysis, temperature monitoring, "
+                "and other meteorological tasks."
             ),
             args_schema=MeteoblueRetrieverSchema,
             **kwargs
         )
 
-    def _set_args_validation_rules(self) -> dict:
-        """Validation rules for tool arguments."""
+    def _set_args_validation_rules(self) -> Dict[str, List]:
+        """Define validation rules for tool arguments."""
         return {
-            'variable': [validators.value_in_list('variable', VariableValues)],
-            'time_end': [validators.time_after('time_end', 'time_start')],
+            'variable': [
+                validators.value_in_list('variable', METEOBLUE_VARIABLES)
+            ],
+            'time_start': [
+                validators.time_before('time_start', 'time_end'),
+                # lambda **kw: None if 'time_start' in kw and validators.parse_dt(kw['time_start']) > datetime.now(tz=timezone.utc).date() else "Time start must be in the future."
+                validators.time_after_datetime('time_start', datetime.now(tz=timezone.utc).date())
+            ],
+            'time_end': [
+                validators.time_after('time_end', 'time_start')
+            ]
         }
 
-    def _set_args_inference_rules(self) -> dict:
-        """Inference rules for tool arguments."""
+    def _set_args_inference_rules(self) -> Dict[str, Any]:
+        """Define inference rules for missing arguments."""
+        def infer_bucket_source(**kwargs: Any) -> str:
+            """Infer default S3 source bucket."""
+            return kwargs.get('bucket_source') or f"{s3_utils._STATE_BUCKET_(self.graph_state)}/meteoblue-in"
         
-        def infer_bucket_source(**kwargs):
-            return kwargs.get('bucket_source') or f"{s3_utils._STATE_BUCKET_(self.graph_state)}/meteoblue-out"
-        
-        def infer_bucket_destination(**kwargs):
+        def infer_bucket_destination(**kwargs: Any) -> str:
+            """Infer default S3 destination bucket."""
             return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/meteoblue-out"
         
         return {
             'time_range': inferrers.infer_time_range(
-                default_hours_back=-1,  # Negative = future (next hour)
+                default_hours_back=-METEOBLUE_DEFAULT_FORECAST_HOURS,  # Negative = future
                 delay_minutes=0
             ),
             'time_start': inferrers.infer_time_start(
-                default_hours_back=-1,  # Negative = future (next hour)
+                default_hours_back=-METEOBLUE_DEFAULT_FORECAST_HOURS,  # Negative = future
                 delay_minutes=0
             ),
             'time_end': inferrers.infer_time_end(
                 delay_minutes=0
             ),
             'bucket_source': infer_bucket_source,
-            'bucket_destination': infer_bucket_destination,
+            'bucket_destination': infer_bucket_destination
         }
 
-    def _execute(self, /, **kwargs: Any):
-        """Execute the tool logic."""
-        api_url = f"{os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5002')}/processes/meteoblue-retriever-process/execution"
-        
-        api_kwargs = {
+    def _execute(self, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Execute the Meteoblue retriever tool.
+
+        Args:
+            **kwargs: Tool arguments validated and inferred
+
+        Returns:
+            Dict with status and tool_output or error message
+        """
+        # Build API payload
+        payload = self._build_api_payload(kwargs)
+
+        # Call Meteoblue API
+        api_response = self._call_meteoblue_api(payload)
+
+        # Process response
+        return self._process_api_response(api_response, kwargs)
+
+    def _build_api_payload(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Build API request payload from tool arguments."""
+        tool_args = {
             'location_name': utils.random_id8(),
             'variable': kwargs['variable'],
-            # 'lat_range': kwargs['bbox']['lat_range']
+            # Note: Uncomment when ready to use actual parameters
+            # 'lat_range': kwargs['bbox']['lat_range'],
             # 'long_range': kwargs['bbox']['long_range'],
             # 'time_range': [
-            #     datetime.datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
-            #     datetime.datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
+            #     datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
+            #     datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
             # ],
             # 'bucket_source': kwargs['bucket_source'],
             # 'bucket_destination': kwargs['bucket_destination']
         }
         
-        credentials_args = {
-            'token': os.getenv("SAFERCAST_API_TOKEN"),
+        credentials = {
+            'token': os.getenv("SAFERCAST_API_TOKEN")
         }
         
-        debug_args = {
-            'debug': kwargs.get('debug', True),
+        debug_config = {
+            'debug': kwargs.get('debug', True)
         }
         
-        payload = {
+        return {
             'inputs': {
-                **api_kwargs,
-                **credentials_args,
-                **debug_args
+                **tool_args,
+                **credentials,
+                **debug_config
             }
         }
 
-        # Mock response for development
-        class ApiResponse200:
+    def _call_meteoblue_api(self, payload: Dict[str, Any]) -> Any:
+        """
+        Call the Meteoblue Retriever API.
+
+        Args:
+            payload: Request payload
+
+        Returns:
+            API response object
+        """
+        api_url = self._get_api_url()
+
+        # TODO: Uncomment when ready for production
+        # import requests
+        # return requests.post(api_url, json=payload)
+
+        # Temporary mock response for testing
+        return self._mock_api_response()
+
+    @staticmethod
+    def _get_api_url() -> str:
+        """Get Meteoblue Retriever API URL from environment."""
+        api_root = os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5002')
+        return f"{api_root}/processes/meteoblue-retriever-process/execution"
+
+    @staticmethod
+    def _mock_api_response() -> Any:
+        """Mock API response for testing purposes."""
+        class MockResponse:
             status_code = 200
-            def json(self):
+
+            def json(self) -> Dict[str, Any]:
                 return {
-                    'status': 'OK',
+                    'status': STATUS_OK,
                     'collected_data_info': [
                         {
                             'variable': 'PRECIPITATION',
@@ -293,35 +348,59 @@ class MeteoblueRetrieverTool(BaseTool):
                         }
                     ]
                 }
-        
-        api_response = ApiResponse200()
-        # api_response = requests.post(api_url, json=payload)
-        
+
+        return MockResponse()
+
+    def _process_api_response(
+        self, 
+        api_response: Any, 
+        kwargs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Process API response and format tool output.
+
+        Args:
+            api_response: Response from Meteoblue API
+            kwargs: Original tool arguments
+
+        Returns:
+            Formatted tool response
+        """
+        # Check for HTTP errors
         if api_response.status_code != 200:
             return {
-                'status': 'error',
-                'message': f"Failed to execute Meteoblue Retriever API: {api_response.status_code}"
+                'status': STATUS_ERROR,
+                'message': f"Meteoblue API request failed: {api_response.status_code}"
             }
-        
-        api_response = api_response.json()
-        
-        if api_response.get('status') != 'OK':
+
+        # Parse response JSON
+        response_data = api_response.json()
+
+        # Validate response structure
+        if response_data.get('status') != STATUS_OK:
             return {
-                'status': 'error',
-                'message': f"Unexpected response from Meteoblue Retriever API: {api_response}"
+                'status': STATUS_ERROR,
+                'message': f"Unexpected API response format: {response_data}"
             }
-        
+
+        # Return success response
         return {
-            'status': 'success',
+            'status': STATUS_SUCCESS,
             'tool_output': {
-                'data': api_response,
-                'description': f"Meteoblue {kwargs['variable']} forecast data.",
+                'data': response_data,
+                'description': f"Meteoblue {kwargs['variable']} forecast data retrieved successfully"
             }
         }
 
-    def _run(self, /, **kwargs: Any) -> dict:
+    def _run(self, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Run the tool (LangChain BaseTool interface).
+
+        Args:
+            **kwargs: Tool arguments
+
+        Returns:
+            Tool execution result
+        """
         run_manager: Optional[CallbackManagerForToolRun] = kwargs.pop("run_manager", None)
-        return super()._run(
-            tool_args=kwargs,
-            run_manager=run_manager
-        )
+        return super()._run(tool_args=kwargs, run_manager=run_manager)
