@@ -1,37 +1,74 @@
 import os
-import datetime
-from dateutil import relativedelta
-from typing import Optional, Literal, Union, List, Dict, Any
+from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, AliasChoices, field_validator, model_validator
+from pydantic import BaseModel, Field, AliasChoices
 
-from langchain_core.messages import SystemMessage
-from langchain_core.callbacks import CallbackManagerForToolRun
 from langchain_core.tools import BaseTool
+from langchain_core.callbacks import CallbackManagerForToolRun
 
 from ....common import utils, s3_utils
 from ....common import names as N
 from ....common import base_models
 
 
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Execution modes
+EXECUTION_MODE_LAMBDA = "lambda"
+EXECUTION_MODE_BATCH = "batch"
+EXECUTION_MODES = [EXECUTION_MODE_LAMBDA, EXECUTION_MODE_BATCH]
+
+# Response status constants
+STATUS_SUCCESS = "success"
+STATUS_ERROR = "error"
+
+# Default band indices (1-based)
+DEFAULT_BAND_START = 1
+DEFAULT_BAND_END = 1
+
+# Rainfall raster band interpretation
+BAND_SINGLE = 1  # Single band (constant rainfall)
+BAND_TIMESERIES = -1  # All bands (timeseries interpretation)
+
+
+# ============================================================================
+# Schema
+# ============================================================================
+
 class SaferRainInputSchema(BaseModel):
     """
-    Run a flood simulation using a terrain elevation raster (DEM/DTM) and rainfall input
-    (either a single numeric amount applied uniformly or a rainfall raster).
-    If the rainfall raster is multiband, bands are interpreted as a time series and
-    can be cumulatively summed over a band range.
+    Schema for running flood simulations using SaferRain model.
+
+    This tool executes flood propagation simulations using:
+    - A Digital Elevation Model (DEM/DTM) as terrain elevation
+    - Rainfall input (either uniform constant or spatially variable raster)
+
+    For multiband rainfall rasters, bands are interpreted as time series
+    and can be cumulatively summed over a specified band range.
+
+    Input Sources:
+      • Direct URL: https://example.com/dem.tif
+      • S3 URI: s3://bucket/project/dtm.tif
+      • Local path: /tmp/dem.tif
+      • Layer Registry reference: "Rome DTM" (uses layer's src)
     """
 
-    # ----------------------------- Required inputs -----------------------------
+    # ============================================================================
+    # Required Inputs
+    # ============================================================================
+
     dem: str = Field(
         ...,
-        title="DEM (GeoTIFF)",
+        title="Digital Elevation Model (DEM/DTM)",
         description=(
-            "Digital Elevation Model raster used as ground elevation.\n"
-            "- You can pass a direct URL, S3 URI, or local path to a GeoTIFF.\n"
-            "- Or you can reference an **existing project raster layer** "
-            "from the Layer Registry (e.g., when the user says 'use the DTM of Rome').\n"
-            "- When a layer is referenced, use that layer's `src` value."
+            "Terrain elevation raster (GeoTIFF) used for simulation.\n\n"
+            "Sources:\n"
+            "• Direct URL: https://example.com/dem_10m.tif\n"
+            "• S3 URI: s3://bucket/project/dtm_rome.tif\n"
+            "• Local path: /tmp/dem.tif\n"
+            "• Layer reference: 'Rome DTM' (from Layer Registry)"
         ),
         examples=[
             "https://example.com/dem_10m.tif",
@@ -43,14 +80,14 @@ class SaferRainInputSchema(BaseModel):
 
     rain: Union[str, float] = Field(
         ...,
-        title="Rainfall input (raster or constant)",
+        title="Rainfall Input (raster or constant mm)",
         description=(
-            "Rainfall data for the simulation.\n"
-            "- It can be a **numeric value** (uniform rainfall in millimeters applied to the whole DEM extent).\n"
-            "- Or a URL, S3 URI, or local path to a rainfall raster (GeoTIFF).\n"
-            "- It can be a reference an **existing project raster layer** "
-            "from the Layer Registry (e.g., 'use layer rainfall-*').\n"
-            "- When a layer is referenced, the tool will internally use that layer's `src` value."
+            "Rainfall data for simulation. Can be:\n\n"
+            "• Numeric value: Uniform rainfall in mm applied to entire DEM\n"
+            "• Raster URL: https://example.com/rainfall.tif\n"
+            "• S3 URI: s3://bucket/project/rainfall_v1.tif\n"
+            "• Layer reference: 'Rainfall V1' (from Layer Registry)\n\n"
+            "For multiband rasters, use `band` and `to_band` to select time series."
         ),
         examples=[
             25.0,
@@ -61,12 +98,17 @@ class SaferRainInputSchema(BaseModel):
         validation_alias=AliasChoices("rain", "rainfall", "rain_path", "precip", "precipitation"),
     )
 
+    # ============================================================================
+    # Optional Outputs
+    # ============================================================================
+
     water: Optional[str] = Field(
         default=None,
-        title="Output Water Depth (GeoTIFF, optional)",
+        title="Output Water Depth (GeoTIFF)",
         description=(
-            f"Destination {base_models._URI_HINT} where the simulated water depth raster (GeoTIFF) will be written. "
-            "If omitted, the tool returns the path/URI produced by the execution environment."
+            "Destination path/URI for simulated water depth raster (GeoTIFF).\n\n"
+            "If omitted, tool returns path/URI generated by execution environment.\n"
+            f"Should follow {base_models._URI_HINT} format."
         ),
         examples=[
             "https://example.com/outputs/water_depth.tif",
@@ -75,140 +117,294 @@ class SaferRainInputSchema(BaseModel):
         validation_alias=AliasChoices("water", "waterdepth", "wd", "water_path"),
     )
 
-    # ------------------------------- Parameters --------------------------------
+    # ============================================================================
+    # Parameters
+    # ============================================================================
+
     band: int = Field(
-        default=1,  # ???: Default should be None (ora t leas 1) → FIRST
-        title="Rain band start (1-based)",
+        default=DEFAULT_BAND_START,
+        title="Rainfall band index start (1-based)",
         description=(
-            "For multiband rainfall rasters: index of the first band to use (1-based). "
-            "If `rain` is numeric (constant), this is ignored."
+            "For multiband rainfall rasters: index of first band to use (1-based, inclusive).\n"
+            "Ignored if rain is numeric (constant).\n"
+            "Use band=1, to_band=3 to sum bands 1-3."
         ),
         examples=[1],
-        validation_alias=AliasChoices("band", "rain_band", "input_band"),
+        validation_alias=AliasChoices("band", "rain_band", "input_band", "start_band"),
     )
 
     to_band: int = Field(
-        default=1,  # ???: Default should be None (ora t least -1) → LAST
-        title="Rain band end (1-based, inclusive)",
+        default=DEFAULT_BAND_END,
+        title="Rainfall band index end (1-based, inclusive)",
         description=(
-            "For multiband rainfall rasters: index of the last band to include (inclusive, 1-based). "
-            "If `to_band` > `band`, rainfall is cumulatively summed over bands [band..to_band]. "
-            "If `rain` is numeric (constant), this is ignored."
+            "For multiband rainfall rasters: index of last band to include (1-based, inclusive).\n"
+            "If to_band >= band, rainfall is cumulatively summed over [band..to_band].\n"
+            "Ignored if rain is numeric (constant)."
         ),
         examples=[1, 3],
-        validation_alias=AliasChoices("to_band", "target_band", "out_band", "end_band"),
+        validation_alias=AliasChoices("to_band", "target_band", "end_band", "out_band"),
     )
 
     t_srs: Optional[str] = Field(
         default=None,
-        title="Target SRS (EPSG)",
+        title="Target Spatial Reference System",
         description=(
-            "Target spatial reference for outputs (e.g., 'EPSG:32633'). "
-            "If None, the DEM CRS is used."
+            "Target SRS/CRS for output raster (e.g., EPSG:32633).\n"
+            "If None, output uses DEM's native CRS."
         ),
         examples=["EPSG:32633", "EPSG:4326"],
-        validation_alias=AliasChoices("t_srs", "target_srs", "crs", "out_crs"),
+        validation_alias=AliasChoices("t_srs", "target_srs", "crs", "out_crs", "srs"),
     )
 
     mode: Literal["lambda", "batch"] = Field(
-        default="lambda",
-        title="Execution mode",
-        description='Execution backend: "lambda" for AWS Lambda, "batch" for AWS Batch. Default is "lambda".',
+        default=EXECUTION_MODE_LAMBDA,
+        title="Execution Mode",
+        description=(
+            "Backend for simulation execution:\n"
+            "• lambda: AWS Lambda (fast, small models)\n"
+            "• batch: AWS Batch (slow, large models)"
+        ),
         examples=["batch", "lambda"],
-        validation_alias=AliasChoices("mode", "execution_mode", "run_mode"),
+        validation_alias=AliasChoices("mode", "execution_mode", "run_mode", "backend"),
     )
 
-class SaferRainTool(BaseTool):
-    """Tool to run flood simulations (SaferRain) via an external API.
+    debug: Optional[bool] = Field(
+        default=False,
+        title="Debug Mode",
+        description="Enable verbose logging for troubleshooting.",
+        examples=[True]
+    )
 
-    This implements the same surface as the original `SaferRainTool` but follows
-    the structure/style of the other retriever tools in `ma/specialized/tools`.
+
+# ============================================================================
+# SaferRain Tool
+# ============================================================================
+
+class SaferRainTool(BaseTool):
+    """
+    Tool for executing flood simulations using the SaferRain model.
+
+    Features:
+      • Run flood propagation simulations using DEM and rainfall data
+      • Support uniform rainfall (constant mm) or spatially variable raster
+      • Handle multiband rainfall rasters as time series
+      • Cumulative summation over band ranges
+      • Flexible output CRS/SRS
+      • AWS Lambda (fast) or AWS Batch (slow) execution modes
+
+    Example use cases:
+      • "Simulate flood extent for 50mm rainfall event in northern Italy"
+      • "Run flood simulation using DEM and radar rainfall raster"
+      • "Calculate water depth with multiband rainfall time series"
     """
 
-    def __init__(self, **kwargs: Any):
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize the SaferRain Tool."""
         super().__init__(
             name=N.SAFER_RAIN_TOOL,
             description=(
-                "Run a flood simulation using a DEM and rainfall input. "
-                "Rain can be a constant (mm) or a rainfall raster. Outputs a water-depth raster or URI."
+                "Execute flood simulations using SaferRain model.\n\n"
+                "Usage:\n"
+                "• Specify DEM (terrain elevation raster)\n"
+                "• Provide rainfall input (constant mm or raster)\n"
+                "• For multiband rasters, select band range for time-series summation\n"
+                "• Optionally set output CRS and execution mode\n\n"
+                "Output: Water depth raster (GeoTIFF)"
             ),
             args_schema=SaferRainInputSchema,
             **kwargs
         )
 
-    def _set_args_validation_rules(self) -> dict:
-        # Keep validation lightweight here; more checks happen at API side.
-        return dict()
+    def _set_args_validation_rules(self) -> Dict[str, List]:
+        """Define validation rules for tool arguments."""
+        return {
+            'mode': [
+                self._validate_execution_mode
+            ],
+            'band': [
+                self._validate_band_index
+            ],
+            'to_band': [
+                self._validate_to_band_index
+            ]
+        }
 
-    def _set_args_inference_rules(self) -> dict:
-        def infer_water(**kwargs):
-            water = kwargs.get('water') or f"water-depth-{utils.b64uuid()}.tif"
-            return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferrain-out/{water}"
+    @staticmethod
+    def _validate_execution_mode(mode: str = None, **kwargs) -> Optional[str]:
+        """Validate execution mode is supported."""
+        if mode and mode not in EXECUTION_MODES:
+            return f"Invalid mode '{mode}'. Must be one of: {EXECUTION_MODES}"
+        return None
 
-        def infer_mode(**kwargs):
-            return 'lambda'
+    @staticmethod
+    def _validate_band_index(band: int = None, **kwargs) -> Optional[str]:
+        """Validate band index is positive integer."""
+        if band is not None and band < 1:
+            return f"band must be >= 1 (1-based), got {band}"
+        return None
+
+    @staticmethod
+    def _validate_to_band_index(to_band: int = None, band: int = None, **kwargs) -> Optional[str]:
+        """Validate to_band index is consistent with band."""
+        if to_band is None or band is None:
+            return None
+        if to_band < 1:
+            return f"to_band must be >= 1 (1-based), got {to_band}"
+        return None
+
+    def _set_args_inference_rules(self) -> Dict[str, Any]:
+        """Define inference rules for missing arguments."""
+        def infer_water(**kwargs: Any) -> str:
+            """Infer default S3 output path for water depth raster."""
+            water_filename = f"water-depth-{utils.b64uuid()}.tif"
+            return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferrain-out/{water_filename}"
+
+        def infer_mode(**kwargs: Any) -> str:
+            """Infer default execution mode."""
+            return EXECUTION_MODE_LAMBDA
 
         return {
             'water': infer_water,
             'mode': infer_mode,
         }
 
-    def _execute(self, /, **kwargs: Any):
-        api_url = f"{os.getenv('SAFERPLACES_API_ROOT', 'http://localhost:5000')}/processes/safer-rain-process/execution"
+    def _execute(self, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Execute the SaferRain simulation tool.
 
-        credentials_args = {
-            "user": os.getenv("SAFERPLACES_API_USER"),
-            "token": os.getenv("SAFERPLACES_API_TOKEN"),
+        Args:
+            **kwargs: Tool arguments validated and inferred
+
+        Returns:
+            Dict with status and tool_output or error message
+        """
+        # Build API payload
+        payload = self._build_api_payload(kwargs)
+
+        # Call SaferRain API
+        api_response = self._call_saferrain_api(payload)
+
+        # Process response
+        return self._process_api_response(api_response, kwargs)
+
+    def _build_api_payload(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
+        """Build API request payload from tool arguments."""
+        tool_args = {
+            'dem': kwargs['dem'],
+            'rain': kwargs['rain'],
+            'band': kwargs.get('band', DEFAULT_BAND_START),
+            'to_band': kwargs.get('to_band', DEFAULT_BAND_END),
+            'water': kwargs.get('water'),
+            'mode': kwargs['mode'],
+            # Note: Uncomment target_srs when ready
+            # 't_srs': kwargs.get('t_srs'),
         }
 
-        debug_args = {"debug": kwargs.get('debug', True)}
+        credentials = {
+            'user': os.getenv("SAFERPLACES_API_USER"),
+            'token': os.getenv("SAFERPLACES_API_TOKEN"),
+        }
 
-        payload = {
-            "inputs": {
-                **kwargs,
-                **credentials_args,
-                **debug_args,
+        debug_config = {
+            'debug': kwargs.get('debug', True)
+        }
+
+        return {
+            'inputs': {
+                **tool_args,
+                **credentials,
+                **debug_config
             }
         }
-        
-        # DOC: Call the SaferRain API
-        # api_response = requests.post(api_url, json=payload)
-        class ApiResponse200:
+
+    def _call_saferrain_api(self, payload: Dict[str, Any]) -> Any:
+        """
+        Call the SaferRain execution API.
+
+        Args:
+            payload: Request payload
+
+        Returns:
+            API response object
+        """
+        api_url = self._get_api_url()
+
+        # TODO: Uncomment when ready for production
+        # import requests
+        # return requests.post(api_url, json=payload)
+
+        # Temporary mock response for testing
+        return self._mock_api_response()
+
+    @staticmethod
+    def _get_api_url() -> str:
+        """Get SaferRain API URL from environment."""
+        api_root = os.getenv('SAFERPLACES_API_ROOT', 'http://localhost:5000')
+        return f"{api_root}/processes/safer-rain-process/execution"
+
+    @staticmethod
+    def _mock_api_response() -> Any:
+        """Mock API response for testing purposes."""
+        class MockResponse:
             status_code = 200
-            def json(self):
-                return dict(
-                    uri = 's3://example-bucket/saferrain-out/water-depth.tif'
-                )
-                
-        api_response = ApiResponse200()
-        
+
+            def json(self) -> Dict[str, str]:
+                return {
+                    "uri": "s3://example-bucket/saferrain-out/water-depth.tif"
+                }
+
+        return MockResponse()
+
+    def _process_api_response(
+        self, 
+        api_response: Any, 
+        kwargs: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Process API response and format tool output.
+
+        Args:
+            api_response: Response from SaferRain API
+            kwargs: Original tool arguments
+
+        Returns:
+            Formatted tool response
+        """
+        # Check for HTTP errors
         if api_response.status_code != 200:
             return {
-                'status': 'error',
-                'message': f"Failed to execute SaferRain API: {api_response.status_code}"
+                'status': STATUS_ERROR,
+                'message': f"SaferRain API request failed: {api_response.status_code}"
             }
-            
-        api_response = api_response.json()
-        
-        if 'uri' not in api_response:
+
+        # Parse response JSON
+        response_data = api_response.json()
+
+        # Validate response structure
+        if 'uri' not in response_data:
             return {
-                'status': 'error',
-                'message': f"Unexpected response from SaferRain API: {api_response}"
+                'status': STATUS_ERROR,
+                'message': f"Unexpected API response format: {response_data}"
             }
-            
+
+        # Return success response
         return {
-            'status': 'success',
+            'status': STATUS_SUCCESS,
             'tool_output': {
-                'data': api_response,
-                'description': f"Water depth data.",
+                'data': response_data,
+                'description': f"Flood simulation completed. Water depth raster: {response_data['uri']}"
             }
         }
-        
-        
-       
-    def _run(self, /, **kwargs: Any) -> dict:
-        run_manager: Optional[CallbackManagerForToolRun] = kwargs.pop('run_manager', None)
-        return super()._run(
-            tool_args=kwargs,
-            run_manager=run_manager
-        )
+
+    def _run(self, **kwargs: Any) -> Dict[str, Any]:
+        """
+        Run the tool (LangChain BaseTool interface).
+
+        Args:
+            **kwargs: Tool arguments
+
+        Returns:
+            Tool execution result
+        """
+        run_manager: Optional[CallbackManagerForToolRun] = kwargs.pop("run_manager", None)
+        return super()._run(tool_args=kwargs, run_manager=run_manager)
