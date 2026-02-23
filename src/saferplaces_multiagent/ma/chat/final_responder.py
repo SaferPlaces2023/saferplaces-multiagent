@@ -1,7 +1,7 @@
 
 import json
 
-from ...common.states import MABaseGraphState
+from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 from langchain_core.messages import AIMessage, SystemMessage
@@ -33,12 +33,12 @@ class Prompts:
 
     FORMAT_FINAL_CONTEXT = staticmethod(lambda state: (
         "Context for your answer:\n"
-        f"- User intent: {state.get('parsed_request', {}).get('intent', 'N/A')}\n"
-        f"- Entities: {', '.join(state.get('parsed_request', {}).get('entities', [])) or 'N/A'}\n"
+        f"- User intent: {(state.get('parsed_request') or dict()).get('intent', 'N/A')}\n"
+        f"- Entities: {', '.join((state.get('parsed_request') or dict()).get('entities', [])) or 'N/A'}\n"
         f"- Plan: {state.get('plan', 'N/A')}\n"
         f"- Tool results: {state.get('tool_results', 'N/A')}\n"
         f"- Error: {state.get('error', 'None')}\n"
-        f"- Original user input: {state.get('parsed_request', {}).get('raw_text', 'N/A')}\n"
+        f"- Original user input: {(state.get('parsed_request') or dict()).get('raw_text', 'N/A')}\n"
     ))
 
 
@@ -69,4 +69,8 @@ class FinalResponder:
         state["messages"] = [AIMessage(content=response.content)]
 
         print(f"[{NodeNames.FINAL_RESPONDER}] ✓ Response ready")
+        
+        # Cleanup state: reset cycle-specific keys, keep persistent data
+        StateManager.cleanup_on_final_response(state)
+        
         return state

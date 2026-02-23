@@ -4,7 +4,7 @@ import json
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
 from langgraph.types import interrupt
 
-from ...common.states import MABaseGraphState
+from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from .tools.dpc_retriever_tool import DPCRetrieverTool
 from .tools.meteoblue_retriever_tool import MeteoblueRetrieverTool
@@ -390,6 +390,9 @@ class DataRetrieverExecutor:
 
             tool_response = self._execute_tool_call(tool_call, state)
             tool_responses.append(tool_response)
+            
+            # Mark step as complete
+            StateManager.mark_agent_step_complete(state, "retriever")
 
             print(f"[{self.name}] ✓ Response: {tool_response.content[:100]}...")
 
@@ -539,5 +542,3 @@ class DataRetrieverExecutor:
             "args": tool_args,
             "result": result
         })
-
-        state[STATE_RETRIEVER_CURRENT_STEP] += 1

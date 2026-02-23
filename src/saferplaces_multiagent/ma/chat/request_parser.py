@@ -3,7 +3,7 @@ import json
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
-from ...common.states import MABaseGraphState
+from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 
@@ -43,6 +43,9 @@ class RequestParser:
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{NodeNames.REQUEST_PARSER}] → Parsing request...")
+
+        # Initialize new cycle: clear previous request state
+        StateManager.initialize_new_cycle(state)
 
         # if state.get("awaiting_user"):
         #     state['awaiting_user'] = False

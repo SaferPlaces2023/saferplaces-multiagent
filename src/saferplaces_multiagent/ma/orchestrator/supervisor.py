@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, BaseMessage
 from langgraph.types import interrupt
 
-from ...common.states import MABaseGraphState
+from ...common.states import MABaseGraphState, StateManager
 from ...common import utils
 from ...common.utils import _base_llm
 from ..names import NodeNames
@@ -352,7 +352,13 @@ class SupervisorRouter:
 
         # Execute next step from plan
         if current_step is not None and current_step < len(plan):
-            return plan[current_step]["agent"]
+            agent_name = plan[current_step]["agent"]
+            
+            # Initialize specialized agent cycle
+            agent_type = "models" if agent_name == NodeNames.MODELS_SUBGRAPH else "retriever"
+            StateManager.initialize_specialized_agent_cycle(state, agent_type)
+            
+            return agent_name
 
         # Plan exhausted: finalize response
         return NodeNames.FINAL_RESPONDER

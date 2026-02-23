@@ -5,7 +5,7 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
 from langgraph.types import interrupt
 
-from ...common.states import MABaseGraphState
+from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool
@@ -393,6 +393,9 @@ class ModelsExecutor:
 
             tool_response = self._execute_tool_call(tool_call, state)
             tool_responses.append(tool_response)
+            
+            # Mark step as complete
+            StateManager.mark_agent_step_complete(state, "models")
 
             print(f"[{self.name}] ✓ Response: {tool_response.content[:100]}...")
 
@@ -528,5 +531,3 @@ class ModelsExecutor:
             "args": tool_args,
             "result": result
         })
-
-        state[STATE_MODELS_CURRENT_STEP] += 1

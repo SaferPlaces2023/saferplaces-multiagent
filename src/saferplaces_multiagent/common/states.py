@@ -72,7 +72,148 @@ class MABaseGraphState(TypedDict):
     layers_request: AIMessage
     layers_invocation: AIMessage
     layers_response: List[Any]
-    
+
+
+# ============================================================================
+# State Manager
+# ============================================================================
+
+class StateManager:
+    """Manages state lifecycle and cleanup across agent cycles."""
+
+    @staticmethod
+    def initialize_new_cycle(state: MABaseGraphState) -> None:
+        """
+        Initialize state for a NEW user request cycle.
+        Called at the beginning of REQUEST_PARSER.
+        
+        Clears:
+        - parsed_request (previous)
+        - plan, current_step, plan_confirmation, replan_request (previous)
+        - All specialized agent state (retriever/models)
+        - tool_results
+        - layers_request (temporary request state)
+        """
+        # Clear planning cycle state
+        state['parsed_request'] = None
+        state['plan'] = None
+        state['current_step'] = None
+        state['plan_confirmation'] = None
+        state['replan_request'] = None
+        state['awaiting_user'] = False
+        
+        # Clear previous tool results
+        state['tool_results'] = {}
+        
+        # Reset additional context for new cycle
+        if 'additional_context' not in state:
+            state['additional_context'] = {}
+        if 'relevant_layers' not in state['additional_context']:
+            state['additional_context']['relevant_layers'] = {}
+        state['additional_context']['relevant_layers']['is_dirty'] = True  # Will refresh in first ROUTER call
+        
+        # Clear specialized agent state
+        StateManager._clear_specialized_agent_state(state, 'retriever')
+        StateManager._clear_specialized_agent_state(state, 'models')
+        
+        # Clear layers agent temporary state
+        state['layers_request'] = None
+        state['layers_invocation'] = None
+        state['layers_response'] = []
+
+    @staticmethod
+    def initialize_specialized_agent_cycle(
+        state: MABaseGraphState, 
+        agent_type: str
+    ) -> None:
+        """
+        Initialize state for a SPECIALIZED AGENT cycle (retriever or models).
+        Called before invoking the agent.
+        
+        Args:
+            agent_type: 'retriever' or 'models'
+        """
+        prefix = agent_type
+        
+        # Clear previous invocation state
+        state[f'{prefix}_invocation'] = None
+        state[f'{prefix}_current_step'] = 0
+        state[f'{prefix}_confirmation'] = None
+        state[f'{prefix}_reinvocation_request'] = None
+
+    @staticmethod
+    def mark_agent_step_complete(
+        state: MABaseGraphState,
+        agent_type: str
+    ) -> None:
+        """
+        Mark completion of a tool execution step in specialized agent.
+        Increments current_step counter.
+        
+        Args:
+            agent_type: 'retriever' or 'models'
+        """
+        prefix = agent_type
+        current = state.get(f'{prefix}_current_step', 0)
+        state[f'{prefix}_current_step'] = current + 1
+
+    @staticmethod
+    def cleanup_on_final_response(state: MABaseGraphState) -> None:
+        """
+        Cleanup state at end of request cycle (FINAL_RESPONDER).
+        
+        Keeps:
+        - layer_registry (persistent across requests)
+        - user_drawn_shapes (persistent across requests)
+        - user_id, project_id (session info)
+        
+        Clears:
+        - Temporary request state (parsed_request, plan, tool_results)
+        - Specialized agent state
+        - Layers request state
+        """
+        # Clear planning cycle
+        state['parsed_request'] = None
+        state['plan'] = None
+        state['current_step'] = None
+        state['plan_confirmation'] = None
+        state['replan_request'] = None
+        
+        # Clear tool results (snapshot taken in final responder)
+        state['tool_results'] = {}
+        
+        # Clear specialized agent state
+        StateManager._clear_specialized_agent_state(state, 'retriever')
+        StateManager._clear_specialized_agent_state(state, 'models')
+        
+        # Clear layers agent temporary state
+        state['layers_request'] = None
+        state['layers_invocation'] = None
+        state['layers_response'] = []
+        
+        # Reset additional context dirty flag
+        if 'additional_context' in state and 'relevant_layers' in state['additional_context']:
+            state['additional_context']['relevant_layers']['is_dirty'] = False
+
+    @staticmethod
+    def _clear_specialized_agent_state(state: MABaseGraphState, agent_type: str) -> None:
+        """Clear all state for a specialized agent."""
+        prefix = agent_type
+        state[f'{prefix}_invocation'] = None
+        state[f'{prefix}_current_step'] = 0
+        state[f'{prefix}_confirmation'] = None
+        state[f'{prefix}_reinvocation_request'] = None
+
+    @staticmethod
+    def is_plan_complete(state: MABaseGraphState) -> bool:
+        """Check if all plan steps have been executed."""
+        plan = state.get('plan')
+        current_step = state.get('current_step')
+        
+        if not plan or current_step is None:
+            return True
+        
+        return current_step >= len(plan)
 
 
 class BaseGraphState():
