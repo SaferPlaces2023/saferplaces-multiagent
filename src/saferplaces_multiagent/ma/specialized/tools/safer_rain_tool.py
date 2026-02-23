@@ -256,8 +256,9 @@ class SaferRainTool(BaseTool):
         """Define inference rules for missing arguments."""
         def infer_water(**kwargs: Any) -> str:
             """Infer default S3 output path for water depth raster."""
+            state = kwargs.pop('_graph_state', None)
             water_filename = f"water-depth-{utils.b64uuid()}.tif"
-            return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/saferrain-out/{water_filename}"
+            return f"{s3_utils._STATE_BUCKET_(state)}/saferrain-out/{water_filename}"
 
         def infer_mode(**kwargs: Any) -> str:
             """Infer default execution mode."""

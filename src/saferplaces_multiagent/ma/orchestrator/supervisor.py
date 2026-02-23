@@ -146,9 +146,6 @@ class SupervisorAgent:
 
         print(f"[{self.name}] → Planning...")
 
-        # Update additional context from available layers
-        self._update_additional_context(state)
-
         # Generate execution plan
         state = self._generate_plan(state)
 
@@ -171,54 +168,6 @@ class SupervisorAgent:
             return True
 
         return False
-
-    def _update_additional_context(self, state: MABaseGraphState) -> None:
-        """Retrieve relevant layers for planning context."""
-        layer_registry = state.get("layer_registry", [])
-        additional_context = state.get("additional_context", {})
-        relevant_layers = additional_context.get("relevant_layers", {})
-
-        # Check if context refresh is needed
-        needs_refresh = (
-            layer_registry
-            and (
-                len(relevant_layers) == 0
-                or relevant_layers.get("is_dirty", False)
-            )
-        )
-
-        if not needs_refresh:
-            return
-
-        # Query layer agent for relevant layers
-        state["layers_request"] = self._build_layers_request(state)
-        layer_agent_state = self.layer_agent(state)
-
-        # Update state with layer agent response
-        state["layer_registry"] = layer_agent_state.get("layer_registry", layer_registry)
-        state["layers_invocation"] = layer_agent_state.get("layers_invocation")
-        state["layers_response"] = layer_agent_state.get("layers_response")
-
-        # Parse and store relevant layers
-        relevant_layers_list = [
-            utils.try_default(lambda: ast.literal_eval(lr.content), lr.content) if isinstance(lr, BaseMessage) else lr
-            for lr in (layer_agent_state.get("layers_response") or [])
-        ]
-
-        state["additional_context"] = {
-            "relevant_layers": {
-                "layers": relevant_layers_list,
-                "is_dirty": False,
-            }
-        }
-
-    def _build_layers_request(self, state: MABaseGraphState) -> str:
-        """Build request for layer agent."""
-        parsed_request = state.get("parsed_request", "No parsed request available")
-        return (
-            f"User has this request:\n{parsed_request}\n"
-            "Retrieve the relevant layers from available layers."
-        )
 
     def _generate_plan(self, state: MABaseGraphState) -> MABaseGraphState:
         """Generate execution plan using LLM."""
@@ -319,6 +268,7 @@ class SupervisorRouter:
 
     def __init__(self):
         self.name = NodeNames.SUPERVISOR_ROUTER
+        self.layer_agent = LayersAgent()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         """Execute routing logic."""
@@ -326,10 +276,66 @@ class SupervisorRouter:
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Determine next node in execution graph."""
+        # Check and update context if dirty (happens between any steps)
+        self._update_additional_context(state)
+        
+        # Then determine next node
         next_node = self._determine_next_node(state)
         state["supervisor_next_node"] = next_node
         print(f"[{self.name}] → Next: {next_node}")
         return state
+
+    def _update_additional_context(self, state: MABaseGraphState) -> None:
+        """Retrieve relevant layers for planning context."""
+        layer_registry = state.get("layer_registry", [])
+        additional_context = state.get("additional_context", {})
+        relevant_layers = additional_context.get("relevant_layers", {})
+
+        # Check if context refresh is needed
+        needs_refresh = (
+            layer_registry
+            and (
+                len(relevant_layers) == 0
+                or relevant_layers.get("is_dirty", False)
+            )
+        )
+
+        if not needs_refresh:
+            return
+
+        print(f"[{self.name}] → Refreshing relevant layers...")
+
+        # Query layer agent for relevant layers
+        state["layers_request"] = self._build_layers_request(state)
+        layer_agent_state = self.layer_agent(state)
+
+        # Update state with layer agent response
+        state["layer_registry"] = layer_agent_state.get("layer_registry", layer_registry)
+        state["layers_invocation"] = layer_agent_state.get("layers_invocation")
+        state["layers_response"] = layer_agent_state.get("layers_response")
+
+        # Parse and store relevant layers
+        relevant_layers_list = [
+            utils.try_default(lambda: ast.literal_eval(lr.content), lr.content) if isinstance(lr, BaseMessage) else lr
+            for lr in (layer_agent_state.get("layers_response") or [])
+        ]
+
+        state["additional_context"] = {
+            "relevant_layers": {
+                "layers": relevant_layers_list,
+                "is_dirty": False,
+            }
+        }
+        print(f"[{self.name}] ✓ Context refreshed")
+
+    @staticmethod
+    def _build_layers_request(state: MABaseGraphState) -> str:
+        """Build request for layer agent."""
+        parsed_request = state.get("parsed_request", "No parsed request available")
+        return (
+            f"User has this request:\n{parsed_request}\n"
+            "Retrieve the relevant layers from available layers."
+        )
 
     @staticmethod
     def _determine_next_node(state: MABaseGraphState) -> str:

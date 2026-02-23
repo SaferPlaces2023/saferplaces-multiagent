@@ -9,6 +9,7 @@ from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
 from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool
+from .layers_agent import LayersAgent
 
 
 # ============================================================================
@@ -226,12 +227,19 @@ class ModelsInvocationConfirm:
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Main confirmation workflow."""
-        # Step 1: Validate tool calls
-        validation_state = self._validate_tool_calls(state)
-        if validation_state is not None:
-            return validation_state
+        invocation = state[STATE_MODELS_INVOCATION]
+        if ModelsAgent._has_no_tool_calls(invocation):
+            return state
+        
+        current_step = state[STATE_MODELS_CURRENT_STEP]
+        pending_tool_calls = invocation.tool_calls[current_step:]
 
-        # Step 2: Request user confirmation (if enabled)
+        # Step 1: VALIDATE tool calls (inference + validation)
+        validation_errors = self._validate_tool_calls(pending_tool_calls, state)
+        if validation_errors:
+            return self._handle_validation_failure(validation_errors, state)
+
+        # Step 2: REQUEST user confirmation (if enabled)
         if self.enabled:
             return self._request_user_confirmation(state)
 
@@ -240,65 +248,70 @@ class ModelsInvocationConfirm:
         state[STATE_MODELS_REINVOCATION_REQUEST] = None
         return state
 
-    def _validate_tool_calls(self, state: MABaseGraphState) -> Optional[MABaseGraphState]:
-        """Validate all pending tool calls."""
-        invocation = state[STATE_MODELS_INVOCATION]
-        if ModelsAgent._has_no_tool_calls(invocation):
-            return None
-        current_step = state[STATE_MODELS_CURRENT_STEP]
-
-        invalid_messages = []
-        for tool_call in invocation.tool_calls[current_step:]:
-            invalid_reason = self._validate_single_tool_call(tool_call, state)
-            if invalid_reason is not None:
-                invalid_messages.append(invalid_reason)
-
-        if not invalid_messages:
-            return None
-
-        # Validation failed: request user intervention
-        print(f"[{self.name}] ⚠ Validation failed")
-        print(f"Invalid tool calls: {[m.content for m in invalid_messages]}")
-
-        return self._handle_validation_failure(invalid_messages, state)
+    def _validate_tool_calls(self, tool_calls: List[ToolCall], state: MABaseGraphState) -> Dict[str, Dict[str, str]]:
+        """Validate all tool calls (inference + validation)."""
+        all_errors = {}
+        
+        for tool_call in tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call.get("args") or {}
+            tool = ToolRegistry().get(tool_name)
+            
+            # Apply inference first and update tool_call args
+            tool_call["args"] = self._apply_inference_to_args(tool, tool_args, state)
+            
+            # Validate arguments (now complete)
+            validation_errors = self._validate_args(tool, tool_call["args"])
+            if validation_errors:
+                all_errors[tool_name] = validation_errors
+        
+        return all_errors
 
     @staticmethod
-    def _validate_single_tool_call(
-        tool_call: ToolCall, state: MABaseGraphState
-    ) -> Optional[AIMessage]:
-        """Validate a single tool call against its schema."""
-        tool_name = tool_call["name"]
-        tool_args = tool_call.get("args") or {}
-        tool = ToolRegistry().get(tool_name)
+    def _apply_inference_to_args(tool: Any, tool_args: Dict[str, Any], graph_state: MABaseGraphState) -> Dict[str, Any]:
+        """Apply inference rules to get complete arguments."""
+        inference_rules = tool._set_args_inference_rules()
+        
+        # Add graph state to kwargs so inferrer functions can access it
+        tool_args_with_state = {**tool_args, '_graph_state': graph_state}
+        
+        for arg_name, inferrer_fn in inference_rules.items():
+            if arg_name not in tool_args or tool_args[arg_name] is None:
+                tool_args[arg_name] = inferrer_fn(**tool_args_with_state)
+        
+        return tool_args
 
-        # Get validation rules for this tool
+    @staticmethod
+    def _validate_args(tool: Any, tool_args: Dict[str, Any]) -> Dict[str, str]:
+        """Validate all arguments against rules."""
         validation_rules = tool._set_args_validation_rules()
-
-        # Check each argument
-        invalid_args = {}
-        for arg, rules in validation_rules.items():
-            for rule in rules:
-                invalid_reason = rule(**tool_args)
-                if invalid_reason is not None:
-                    invalid_args[arg] = invalid_reason
+        errors = {}
+        
+        for arg_name, validators_list in validation_rules.items():
+            for validator_fn in validators_list:
+                error = validator_fn(**tool_args)
+                if error:
+                    errors[arg_name] = error
                     break
+        
+        return errors
 
-        if not invalid_args:
-            return None
-
-        # Format validation error message
-        error_msg = f"Parameters for '{tool_name}' are invalid:\n"
-        error_msg += "\n".join(f"  {arg}: {reason}" for arg, reason in invalid_args.items())
-
-        return AIMessage(content=error_msg)
-
-    @staticmethod
     def _handle_validation_failure(
-        invalid_messages: List[AIMessage], state: MABaseGraphState
+        self,
+        validation_errors: Dict[str, Dict[str, str]],
+        state: MABaseGraphState
     ) -> MABaseGraphState:
         """Handle validation failure with user interrupt."""
-        error_content = "\n".join(m.content for m in invalid_messages)
+        error_content = "Parameters validation failed:\n\n"
+        for tool_name, tool_errors in validation_errors.items():
+            error_content += f"  {tool_name}:\n"
+            for arg, reason in tool_errors.items():
+                error_content += f"    - {arg}: {reason}\n"
+        
+        print(f"[{self.name}] ⚠ Validation failed")
+        print(f"Errors: {validation_errors}")
 
+        # Request user intervention via interrupt
         interruption = interrupt({
             "content": f"Some tool calls need to be reviewed or corrected:\n{error_content}",
             "interrupt_type": "invocation-validation"
@@ -356,6 +369,7 @@ class ModelsExecutor:
 
     def __init__(self) -> None:
         self.name = NodeNames.MODELS_EXECUTOR
+        self.layers_agent = LayersAgent()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         """Execute tool calls."""
@@ -396,24 +410,101 @@ class ModelsExecutor:
         tool_args = tool_call.get("args") or {}
         tool = ToolRegistry().get(tool_name)
 
-        # Execute tool
+        # Execute tool (arguments already complete and validated from Confirm step)
         result = tool._execute(**tool_args)
 
-        # Record result
+        # Format tool response message (tool-specific)
+        tool_response = self._format_tool_response(tool_call, tool_name, tool_args, result)
+
+        # Add created layer to registry
+        self._add_layer_to_registry(tool_name, tool_args, result, state)
+
+        # Record result (common logic)
         self._record_tool_result(tool_name, tool_args, result, state)
 
-        # Format tool response message
-        tool_response = ToolMessage(
-            content=(
-                f"Layer generated:\n"
-                f"- Title: {tool_name.replace('_', ' ').title()} models simulation layer\n"
-                f"- URI: s3://example-bucket/{tool_name}-out/{tool_args.get('variable', 'data')}.tif\n"
-                f"- Parameters: {tool_args}"
-            ),
-            tool_call_id=tool_call["id"]
+        return tool_response
+
+    def _format_tool_response(
+        self,
+        tool_call: ToolCall,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        result: Any
+    ) -> ToolMessage:
+        """Format tool response message with tool-specific logic."""
+        
+        # Tool-specific formatting
+        if tool_name == "safer_rain":
+            content = self._format_safer_rain_response(tool_args, result)
+        else:
+            # Generic fallback
+            content = self._format_generic_response(tool_name, tool_args, result)
+
+        return ToolMessage(content=content, tool_call_id=tool_call["id"])
+
+    @staticmethod
+    def _format_safer_rain_response(tool_args: Dict[str, Any], result: Any) -> str:
+        """Format SaferRain specific response."""
+        dem = tool_args.get('dem', 'unknown')
+        rain = tool_args.get('rain', 'unknown')
+        uri = result.get('tool_output', {}).get('data', {}).get('uri', 'N/A')
+        
+        return (
+            f"✓ Flood simulation completed successfully\n"
+            f"Model: SaferRain\n"
+            f"DEM: {dem}\n"
+            f"Rainfall: {rain}\n"
+            f"Output URI: {uri}\n"
+            f"Description: Water depth raster from flood propagation simulation"
         )
 
-        return tool_response
+    @staticmethod
+    def _format_generic_response(tool_name: str, tool_args: Dict[str, Any], result: Any) -> str:
+        """Format generic tool response."""
+        return (
+            f"✓ Tool '{tool_name}' executed successfully\n"
+            f"Arguments: {json.dumps(tool_args, indent=2)}\n"
+            f"Result: {json.dumps(result, indent=2)}"
+        )
+
+    def _add_layer_to_registry(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        result: Any,
+        state: MABaseGraphState
+    ) -> None:
+        """Add created layer to layer registry via layers agent."""
+        # Check if result was successful
+        if result.get('status') != 'success':
+            return
+
+        # Build request for layers agent with all context
+        state["layers_request"] = (
+            f"Add a new layer from the following tool execution:\n"
+            f"Tool: {tool_name}\n"
+            f"Arguments: {json.dumps(tool_args, indent=2)}\n"
+            f"Result: {json.dumps(result, indent=2)}\n\n"
+            f"Extract the layer URI from the result and create a descriptive title "
+            f"and description based on the tool name and arguments."
+        )
+
+        # Execute layers agent
+        print(f"[{self.name}] → Adding layer to registry...")
+        layer_agent_state = self.layers_agent(state)
+        
+        # Update state with new layer registry
+        state["layer_registry"] = layer_agent_state.get("layer_registry", state.get("layer_registry", []))
+
+        # Mark additional_context as dirty since registry changed
+        if "additional_context" not in state:
+            state["additional_context"] = {}
+        if "relevant_layers" not in state["additional_context"]:
+            state["additional_context"]["relevant_layers"] = {}
+        
+        state["additional_context"]["relevant_layers"]["is_dirty"] = True
+
+        print(f"[{self.name}] ✓ Layer added to registry")
 
     @staticmethod
     def _record_tool_result(

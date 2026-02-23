@@ -237,7 +237,8 @@ class DPCRetrieverTool(BaseTool):
         """Define inference rules for missing arguments."""
         def infer_bucket_destination(**kwargs: Any) -> str:
             """Infer default S3 bucket destination."""
-            return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/dpc-out"
+            state = kwargs.pop('_graph_state', None)
+            return f"{s3_utils._STATE_BUCKET_(state)}/dpc-out"
         
         return {
             'time_range': inferrers.infer_time_range(

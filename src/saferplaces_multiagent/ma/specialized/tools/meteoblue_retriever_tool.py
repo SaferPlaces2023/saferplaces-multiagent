@@ -234,11 +234,13 @@ class MeteoblueRetrieverTool(BaseTool):
         """Define inference rules for missing arguments."""
         def infer_bucket_source(**kwargs: Any) -> str:
             """Infer default S3 source bucket."""
-            return kwargs.get('bucket_source') or f"{s3_utils._STATE_BUCKET_(self.graph_state)}/meteoblue-in"
+            state = kwargs.pop('_graph_state', None)
+            return kwargs.get('bucket_source') or f"{s3_utils._STATE_BUCKET_(state)}/meteoblue-in"
         
         def infer_bucket_destination(**kwargs: Any) -> str:
             """Infer default S3 destination bucket."""
-            return f"{s3_utils._STATE_BUCKET_(self.graph_state)}/meteoblue-out"
+            state = kwargs.pop('_graph_state', None)
+            return f"{s3_utils._STATE_BUCKET_(state)}/meteoblue-out"
         
         return {
             'time_range': inferrers.infer_time_range(
