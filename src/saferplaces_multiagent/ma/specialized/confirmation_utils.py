@@ -174,8 +174,22 @@ class ToolInvocationConfirmationHandler:
     ) -> MABaseGraphState:
         """Handle abort: cancel tool execution, skip this step."""
         state[confirmation_key] = INVOCATION_REJECTED
-        state["current_step"] += 1  # Skip to next step
-        print("[ConfirmationHandler] ⚠ Abort: skipping step")
+        
+        # Safely increment current_step only if there are more steps
+        plan_length = len(state.get("plan", []))
+        current_step = state.get("current_step", 0)
+        
+        if current_step + 1 < plan_length:
+            state["current_step"] += 1
+            print(f"[ConfirmationHandler] ⚠ Abort: skipping to step {state['current_step']}")
+        else:
+            # Mark as complete if no more steps
+            state["current_step"] = plan_length
+            print("[ConfirmationHandler] ⚠ Abort: no more steps, marking as complete")
+        
+        # Reset clarify counter
+        state["clarify_iteration_count"] = 0
+        
         return state
 
     def _handle_clarify(

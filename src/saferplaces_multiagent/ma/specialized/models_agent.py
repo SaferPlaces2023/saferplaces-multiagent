@@ -11,6 +11,7 @@ from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool
 from .layers_agent import LayersAgent
 from .confirmation_utils import ToolInvocationConfirmationHandler
+from .validation_utils import ToolValidationResponseHandler
 
 
 # ============================================================================
@@ -222,6 +223,7 @@ class ModelsInvocationConfirm:
         self.name = NodeNames.MODELS_INVOCATION_CONFIRM
         self.enabled = enabled
         self.confirmation_handler = ToolInvocationConfirmationHandler()
+        self.validation_handler = ToolValidationResponseHandler()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         """Execute confirmation logic."""
@@ -321,12 +323,18 @@ class ModelsInvocationConfirm:
 
         response = interruption.get("response", "User did not provide any response.")
 
-        # Prepare for re-invocation
-        state[STATE_MODELS_CURRENT_STEP] = 0
-        state[STATE_MODELS_CONFIRMATION] = INVOCATION_REJECTED
-        state[STATE_MODELS_REINVOCATION_REQUEST] = HumanMessage(content=response)
-
-        return state
+        # Use shared validation handler to classify and process validation response
+        user_validation_state = self.validation_handler.process_validation_response(
+            state=state,
+            user_response=response,
+            validation_errors=validation_errors,
+            confirmation_key=STATE_MODELS_CONFIRMATION,
+            reinvocation_key=STATE_MODELS_REINVOCATION_REQUEST,
+            invocation_key=STATE_MODELS_INVOCATION,
+            current_step_key=STATE_MODELS_CURRENT_STEP,
+            max_clarify_iterations=3
+        )
+        return user_validation_state
 
     def _request_user_confirmation(self, state: MABaseGraphState) -> MABaseGraphState:
         """Request user confirmation for tool invocation."""
