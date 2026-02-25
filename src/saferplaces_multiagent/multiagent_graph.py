@@ -48,7 +48,7 @@ def build_specialized_retriever_subgraph():
     retriever_builder = StateGraph(MABaseGraphState)
     
     retriever_agent = DataRetrieverAgent()
-    retriever_invocation_confirm = DataRetrieverInvocationConfirm()
+    retriever_invocation_confirm = DataRetrieverInvocationConfirm(enabled=True)
     retriever_executor = DataRetrieverExecutor()
 
     retriever_builder.add_node(retriever_agent.name, retriever_agent)
@@ -76,7 +76,7 @@ def build_specialized_models_subgraph():
     models_builder = StateGraph(MABaseGraphState)
     
     models_agent = ModelsAgent()
-    models_invocation_confirm = ModelsInvocationConfirm()
+    models_invocation_confirm = ModelsInvocationConfirm(enabled=True)
     models_executor = ModelsExecutor()
 
     models_builder.add_node(models_agent.name, models_agent)

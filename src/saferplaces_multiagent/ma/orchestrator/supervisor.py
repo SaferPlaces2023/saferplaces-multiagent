@@ -38,6 +38,33 @@ PLAN_PENDING = "pending"
 PLAN_ACCEPTED = "accepted"
 PLAN_REJECTED = "rejected"
 
+# User response classification labels for plan confirmation
+PLAN_RESPONSE_LABELS = {
+    "accept": (
+        "User accepts the plan and wants to proceed immediately. "
+        "Examples: 'ok', 'yes', 'proceed', 'looks good', 'go ahead', 'do it', 'perfect'"
+    ),
+    "modify": (
+        "User wants changes to the plan but still intends to execute something. "
+        "Examples: 'change step 2', 'skip retriever', 'add more detail', 'swap order', "
+        "'do only step 1', 'remove the last step'"
+    ),
+    "clarify": (
+        "User needs more information before deciding (asking questions, not rejecting). "
+        "Examples: 'what does step 1 do?', 'explain retriever', 'why two steps?', "
+        "'what is DPC?', 'how long will this take?'"
+    ),
+    "reject": (
+        "User rejects the plan approach and wants a completely different strategy. "
+        "Examples: 'no that's wrong', 'different approach please', 'not what I meant', "
+        "'try another way', 'that won't work'"
+    ),
+    "abort": (
+        "User wants to cancel the entire operation without alternatives. "
+        "Examples: 'cancel', 'stop', 'nevermind', 'forget it', 'abort', 'no thanks'"
+    )
+}
+
 
 # ============================================================================
 # Prompts
@@ -84,23 +111,65 @@ class SupervisorPrompts:
         )
 
     @staticmethod
-    def replanning_prompt(state: MABaseGraphState) -> str:
-        """Generate replanning prompt after user rejection."""
+    def incremental_replanning_prompt(state: MABaseGraphState) -> str:
+        """Generate prompt for incremental modifications (modify label)."""
         parsed_request = state.get("parsed_request", "No parsed request available")
         current_plan = state.get("plan", "No plan available")
         replan_request = state.get("replan_request")
-        user_requirements = replan_request.content if replan_request else "No requirements"
+        user_feedback = replan_request.content if replan_request else "No feedback"
 
         return (
-            f"Parsed request:\n{parsed_request}\n"
+            f"User requested modifications to the existing plan.\n"
             f"\n"
-            f"User asked to revise the proposed plan.\n"
-            f"Here is the current plan:\n{current_plan}\n"
+            f"Original request:\n{parsed_request}\n"
             f"\n"
-            f"User requirements: {user_requirements}\n"
+            f"Current plan:\n{current_plan}\n"
             f"\n"
-            f"Produce a new plan that satisfies the user's requirements. "
-            f"You can modify, reorder, add or remove steps and their goals."
+            f"User feedback:\n{user_feedback}\n"
+            f"\n"
+            f"Adjust the plan incrementally based on user feedback. "
+            f"Keep what works and is not mentioned, modify only what's explicitly requested. "
+            f"Minimize disruption to the overall approach."
+        )
+
+    @staticmethod
+    def total_replanning_prompt(state: MABaseGraphState) -> str:
+        """Generate prompt for total replanning (reject label)."""
+        parsed_request = state.get("parsed_request", "No parsed request available")
+        previous_plan = state.get("plan", "No plan available")
+        replan_request = state.get("replan_request")
+        user_feedback = replan_request.content if replan_request else "No feedback"
+
+        return (
+            f"User rejected the entire plan approach and wants a different strategy.\n"
+            f"\n"
+            f"Original request:\n{parsed_request}\n"
+            f"\n"
+            f"Previous plan (REJECTED):\n{previous_plan}\n"
+            f"\n"
+            f"User feedback:\n{user_feedback}\n"
+            f"\n"
+            f"Create a completely new plan from scratch. "
+            f"Take a fundamentally different approach based on user requirements. "
+            f"Do not repeat the rejected strategy."
+        )
+
+    @staticmethod
+    def plan_explanation_prompt(state: MABaseGraphState, user_question: str) -> str:
+        """Generate prompt to explain the plan (clarify label)."""
+        plan = state.get("plan", [])
+        parsed_request = state.get("parsed_request", {})
+        
+        return (
+            f"User asked about the execution plan: '{user_question}'\n"
+            f"\n"
+            f"Original request:\n{parsed_request}\n"
+            f"\n"
+            f"Current plan:\n{plan}\n"
+            f"\n"
+            f"Provide a clear, concise explanation that answers the user's specific question. "
+            f"Focus on helping them understand the plan without changing it. "
+            f"Be informative but brief."
         )
 
 
@@ -171,10 +240,21 @@ class SupervisorAgent:
 
     def _generate_plan(self, state: MABaseGraphState) -> MABaseGraphState:
         """Generate execution plan using LLM."""
-        # Choose prompt based on planning or replanning
+        # Choose prompt based on replan_type
+        replan_type = state.get("replan_type")
+        
         if state.get("plan_confirmation") == PLAN_REJECTED:
-            human_prompt = SupervisorPrompts.replanning_prompt(state)
+            if replan_type == "modify":
+                # Incremental changes to existing plan
+                human_prompt = SupervisorPrompts.incremental_replanning_prompt(state)
+            elif replan_type == "reject":
+                # Complete replanning with different approach
+                human_prompt = SupervisorPrompts.total_replanning_prompt(state)
+            else:
+                # Fallback to total replanning
+                human_prompt = SupervisorPrompts.total_replanning_prompt(state)
         else:
+            # First time planning
             human_prompt = SupervisorPrompts.planning_prompt(state)
 
         messages = [
@@ -197,6 +277,7 @@ class SupervisorAgent:
         state["awaiting_user"] = False
         state["plan_confirmation"] = PLAN_PENDING
         state["replan_request"] = None
+        state["replan_type"] = None  # Reset after use
 
         # Log plan
         if validated_steps:
@@ -213,6 +294,8 @@ class SupervisorPlannerConfirm:
     def __init__(self, enabled: bool = False):
         self.name = NodeNames.SUPERVISOR_PLANNER_CONFIRM
         self.enabled = enabled
+        self.llm = _base_llm
+        self.max_clarify_iterations = 3  # Prevent infinite clarify loops
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         """Execute confirmation logic."""
@@ -230,37 +313,179 @@ class SupervisorPlannerConfirm:
             return state
 
         # Request user confirmation
-        print(f"Do you want to proceed with the plan: {plan}?")
+        print(f"[{self.name}] → Requesting plan confirmation... \n {plan}")
         interruption = interrupt({
             "content": f"Do you want to proceed with the plan: {plan}?",
             "interrupt_type": "plan-confirmation",
         })
 
-        response = interruption.get("response", "User did not provide any response.")
+        user_response = interruption.get("response", "User did not provide any response.")
+        print(f"[{self.name}] → User response: {user_response}")
 
-        if response == "ok":
-            state["plan_confirmation"] = PLAN_ACCEPTED
-            state["replan_request"] = None
+        # Classify user intent
+        intent = self._classify_user_response(user_response)
+        print(f"[{self.name}] → Classified intent: {intent}")
+
+        # Dispatch based on classification
+        if intent == "accept":
+            return self._handle_accept(state)
+        elif intent == "modify":
+            return self._handle_modify(state, user_response)
+        elif intent == "clarify":
+            return self._handle_clarify(state, user_response)
+        elif intent == "reject":
+            return self._handle_reject(state, user_response)
+        elif intent == "abort":
+            return self._handle_abort(state)
         else:
-            # User rejected: prepare for replanning
-            self._handle_rejection(state, response)
+            # Fallback: treat as reject
+            print(f"[{self.name}] ⚠ Unknown intent, defaulting to reject")
+            return self._handle_reject(state, user_response)
 
+    def _classify_user_response(self, user_response: str) -> str:
+        """Classify user intent using zero-shot classification."""
+        import json
+        
+        classification_prompt = (
+            "Classify the user's response into ONE of these categories:\n\n"
+            f"{json.dumps(PLAN_RESPONSE_LABELS, indent=2)}\n\n"
+            f"User response: '{user_response}'\n\n"
+            "Return ONLY the label name (accept/modify/clarify/reject/abort) as a single word."
+        )
+
+        messages = [
+            SystemMessage(content="You are a precise intent classifier. Return only the label name."),
+            HumanMessage(content=classification_prompt)
+        ]
+
+        try:
+            response = self.llm.invoke(messages)
+            label = response.content.strip().lower()
+            
+            # Validate label
+            if label in PLAN_RESPONSE_LABELS:
+                return label
+            else:
+                print(f"[{self.name}] ⚠ Invalid label '{label}', defaulting to 'reject'")
+                return "reject"
+        except Exception as e:
+            print(f"[{self.name}] ⚠ Classification error: {e}, defaulting to 'reject'")
+            return "reject"
+
+    @staticmethod
+    def _handle_accept(state: MABaseGraphState) -> MABaseGraphState:
+        """Handle accept: proceed with execution."""
+        state["plan_confirmation"] = PLAN_ACCEPTED
+        state["replan_request"] = None
+        state["replan_type"] = None
+        print("[SupervisorPlannerConfirm] ✓ Plan accepted")
         return state
+
+    @staticmethod
+    def _handle_modify(state: MABaseGraphState, user_response: str) -> MABaseGraphState:
+        """Handle modify: incremental replanning."""
+        state["plan_confirmation"] = PLAN_REJECTED
+        state["replan_request"] = HumanMessage(content=user_response)
+        state["replan_type"] = "modify"
+        state["current_step"] = None
+        state["awaiting_user"] = False
+        print("[SupervisorPlannerConfirm] ↻ Requesting incremental modifications")
+        return state
+
+    @staticmethod
+    def _handle_reject(state: MABaseGraphState, user_response: str) -> MABaseGraphState:
+        """Handle reject: complete replanning with different approach."""
+        state["plan_confirmation"] = PLAN_REJECTED
+        state["replan_request"] = HumanMessage(content=user_response)
+        state["replan_type"] = "reject"
+        state["current_step"] = None
+        state["awaiting_user"] = False
+        print("[SupervisorPlannerConfirm] ↻ Requesting total replanning")
+        return state
+
+    @staticmethod
+    def _handle_abort(state: MABaseGraphState) -> MABaseGraphState:
+        """Handle abort: cancel operation entirely."""
+        state["plan"] = []
+        state["plan_confirmation"] = PLAN_REJECTED
+        state["replan_request"] = None
+        state["replan_type"] = None
+        state["current_step"] = None
+        state["supervisor_next_node"] = NodeNames.FINAL_RESPONDER
+        print("[SupervisorPlannerConfirm] ✕ Operation aborted by user")
+        return state
+
+    def _handle_clarify(self, state: MABaseGraphState, user_question: str) -> MABaseGraphState:
+        """Handle clarify: explain plan and re-interrupt."""
+        clarify_count = state.get("clarify_iteration_count", 0)
+        
+        # Prevent infinite clarify loops
+        if clarify_count >= self.max_clarify_iterations:
+            print(f"[{self.name}] ⚠ Max clarify iterations reached, auto-accepting")
+            return self._handle_accept(state)
+        
+        state["clarify_iteration_count"] = clarify_count + 1
+        
+        # Generate explanation
+        explanation = self._generate_plan_explanation(state, user_question)
+        print(f"[{self.name}] → Providing explanation...")
+        
+        # New interrupt with explanation
+        interruption = interrupt({
+            "content": f"{explanation}\n\nDo you want to proceed with this plan?",
+            "interrupt_type": "plan-clarification",
+        })
+        
+        new_response = interruption.get("response", "User did not provide any response.")
+        print(f"[{self.name}] → User response after clarification: {new_response}")
+        
+        # Recursive: classify the new response
+        intent = self._classify_user_response(new_response)
+        print(f"[{self.name}] → Classified intent: {intent}")
+        
+        # Dispatch again (recursive resolution)
+        if intent == "accept":
+            state["clarify_iteration_count"] = 0  # Reset counter
+            return self._handle_accept(state)
+        elif intent == "modify":
+            state["clarify_iteration_count"] = 0
+            return self._handle_modify(state, new_response)
+        elif intent == "clarify":
+            # Recursive clarify (will check max iterations next time)
+            return self._handle_clarify(state, new_response)
+        elif intent == "reject":
+            state["clarify_iteration_count"] = 0
+            return self._handle_reject(state, new_response)
+        elif intent == "abort":
+            state["clarify_iteration_count"] = 0
+            return self._handle_abort(state)
+        else:
+            state["clarify_iteration_count"] = 0
+            return self._handle_reject(state, new_response)
+
+    def _generate_plan_explanation(self, state: MABaseGraphState, user_question: str) -> str:
+        """Generate explanation of the plan using LLM."""
+        explanation_prompt = SupervisorPrompts.plan_explanation_prompt(state, user_question)
+        
+        messages = [
+            SystemMessage(content="You are a helpful assistant explaining an execution plan."),
+            HumanMessage(content=explanation_prompt)
+        ]
+        
+        try:
+            response = self.llm.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            print(f"[{self.name}] ⚠ Explanation generation error: {e}")
+            return "I apologize, I couldn't generate the explanation. Please accept or reject the plan."
 
     @staticmethod
     def _auto_confirm(state: MABaseGraphState) -> MABaseGraphState:
         """Auto-confirm plan without user interaction."""
         state["plan_confirmation"] = PLAN_ACCEPTED
         state["replan_request"] = None
+        state["replan_type"] = None
         return state
-
-    @staticmethod
-    def _handle_rejection(state: MABaseGraphState, response: str) -> None:
-        """Handle plan rejection and prepare for replanning."""
-        state["current_step"] = None
-        state["awaiting_user"] = False
-        state["plan_confirmation"] = PLAN_REJECTED
-        state["replan_request"] = HumanMessage(content=response)
 
 
 class SupervisorRouter:

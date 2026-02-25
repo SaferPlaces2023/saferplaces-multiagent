@@ -9,6 +9,7 @@ from ...common.utils import _base_llm
 from .tools.dpc_retriever_tool import DPCRetrieverTool
 from .tools.meteoblue_retriever_tool import MeteoblueRetrieverTool
 from .layers_agent import LayersAgent
+from .confirmation_utils import ToolInvocationConfirmationHandler
 from ..names import NodeNames
 
 
@@ -216,6 +217,7 @@ class DataRetrieverInvocationConfirm:
     def __init__(self, enabled: bool = False) -> None:
         self.name = NodeNames.RETRIEVER_INVOCATION_CONFIRM
         self.enabled = enabled
+        self.confirmation_handler = ToolInvocationConfirmationHandler()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         """Execute confirmation logic."""
@@ -345,15 +347,24 @@ class DataRetrieverInvocationConfirm:
 
         response = interruption.get("response", "User did not provide any response.")
 
-        if response == "ok":
-            state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_ACCEPTED
-            state[STATE_RETRIEVER_REINVOCATION_REQUEST] = None
-        else:
-            state[STATE_RETRIEVER_CURRENT_STEP] = 0
-            state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_REJECTED
-            state[STATE_RETRIEVER_REINVOCATION_REQUEST] = HumanMessage(content=response)
-
-        return state
+        # if response == "ok":
+        #     state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_ACCEPTED
+        #     state[STATE_RETRIEVER_REINVOCATION_REQUEST] = None
+        # else:
+        #     state[STATE_RETRIEVER_CURRENT_STEP] = 0
+        #     state[STATE_RETRIEVER_CONFIRMATION] = INVOCATION_REJECTED
+        #     state[STATE_RETRIEVER_REINVOCATION_REQUEST] = HumanMessage(content=response)
+        
+        # Use shared confirmation handler to classify and process response
+        user_confirmation_state = self.confirmation_handler.process_confirmation(
+            state=state,
+            user_response=response,
+            confirmation_key=STATE_RETRIEVER_CONFIRMATION,
+            reinvocation_key=STATE_RETRIEVER_REINVOCATION_REQUEST,
+            invocation_key=STATE_RETRIEVER_INVOCATION,
+            max_clarify_iterations=3
+        )
+        return user_confirmation_state
 
 
 # ============================================================================

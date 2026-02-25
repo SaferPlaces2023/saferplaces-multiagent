@@ -10,6 +10,7 @@ from ...common.utils import _base_llm
 from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool
 from .layers_agent import LayersAgent
+from .confirmation_utils import ToolInvocationConfirmationHandler
 
 
 # ============================================================================
@@ -220,6 +221,7 @@ class ModelsInvocationConfirm:
     def __init__(self, enabled: bool = False) -> None:
         self.name = NodeNames.MODELS_INVOCATION_CONFIRM
         self.enabled = enabled
+        self.confirmation_handler = ToolInvocationConfirmationHandler()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         """Execute confirmation logic."""
@@ -349,15 +351,22 @@ class ModelsInvocationConfirm:
 
         response = interruption.get("response", "User did not provide any response.")
 
-        if response == "ok":
-            state[STATE_MODELS_CONFIRMATION] = INVOCATION_ACCEPTED
-            state[STATE_MODELS_REINVOCATION_REQUEST] = None
-        else:
-            state[STATE_MODELS_CURRENT_STEP] = 0
-            state[STATE_MODELS_CONFIRMATION] = INVOCATION_REJECTED
-            state[STATE_MODELS_REINVOCATION_REQUEST] = HumanMessage(content=response)
-
-        return state
+        # if response == "ok":
+        #     state[STATE_MODELS_CONFIRMATION] = INVOCATION_ACCEPTED
+        #     state[STATE_MODELS_REINVOCATION_REQUEST] = None
+        # else:
+        #     state[STATE_MODELS_CURRENT_STEP] = 0
+        #     state[STATE_MODELS_CONFIRMATION] = INVOCATION_REJECTED
+        #     state[STATE_MODELS_REINVOCATION_REQUEST] = HumanMessage(content=response)
+        # Use shared confirmation handler to classify and process response
+        return self.confirmation_handler.process_confirmation(
+            state=state,
+            user_response=response,
+            confirmation_key=STATE_MODELS_CONFIRMATION,
+            reinvocation_key=STATE_MODELS_REINVOCATION_REQUEST,
+            invocation_key=STATE_MODELS_INVOCATION,
+            max_clarify_iterations=3
+        )
 
 
 # ============================================================================

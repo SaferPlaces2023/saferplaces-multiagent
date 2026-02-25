@@ -52,6 +52,8 @@ class MABaseGraphState(TypedDict):
     plan: Optional[List[dict]]
     plan_confirmation: ConfirmationState
     replan_request: AnyMessage
+    replan_type: Optional[str]  # "modify" | "reject" | None
+    clarify_iteration_count: Optional[int]  # Counter for clarify loops
     current_step: Optional[int]
     tool_results: Dict[str, Any]
     awaiting_user: bool
@@ -100,6 +102,8 @@ class StateManager:
         state['current_step'] = None
         state['plan_confirmation'] = None
         state['replan_request'] = None
+        state['replan_type'] = None
+        state['clarify_iteration_count'] = 0
         state['awaiting_user'] = False
         
         # Clear previous tool results
@@ -178,6 +182,8 @@ class StateManager:
         state['current_step'] = None
         state['plan_confirmation'] = None
         state['replan_request'] = None
+        state['replan_type'] = None
+        state['clarify_iteration_count'] = 0
         
         # Clear tool results (snapshot taken in final responder)
         state['tool_results'] = {}
