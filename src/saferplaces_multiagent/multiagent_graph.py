@@ -19,7 +19,7 @@ def build_supervisor_subgraph():
     supervisor_builder = StateGraph(MABaseGraphState)
     
     supervisor_agent = SupervisorAgent()
-    supervisor_planner_confirm = SupervisorPlannerConfirm()
+    supervisor_planner_confirm = SupervisorPlannerConfirm(enabled=True)
     supervisor_router = SupervisorRouter()
     
     supervisor_builder.add_node(supervisor_agent.name, supervisor_agent)
