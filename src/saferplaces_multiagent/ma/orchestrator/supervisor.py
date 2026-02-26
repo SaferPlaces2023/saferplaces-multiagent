@@ -314,8 +314,9 @@ class SupervisorPlannerConfirm:
 
         # Request user confirmation
         print(f"[{self.name}] → Requesting plan confirmation... \n {plan}")
+        confirmation_message = self._generate_confirmation_message(state, plan)
         interruption = interrupt({
-            "content": f"Do you want to proceed with the plan: {plan}?",
+            "content": confirmation_message,
             "interrupt_type": "plan-confirmation",
         })
 
@@ -478,6 +479,46 @@ class SupervisorPlannerConfirm:
         except Exception as e:
             print(f"[{self.name}] ⚠ Explanation generation error: {e}")
             return "I apologize, I couldn't generate the explanation. Please accept or reject the plan."
+
+    def _generate_confirmation_message(self, state: MABaseGraphState, plan: List[Dict]) -> str:
+        """Generate a clear, schematic confirmation message using LLM."""
+        # Format plan as a readable list
+        plan_text = self._format_plan_for_display(plan)
+        
+        confirmation_prompt = (
+            f"Generate a clear, concise confirmation message for the user about the following execution plan.\n"
+            f"The message should be:\n"
+            f"- Schematic and organized (use bullet points or numbering)\n"
+            f"- Concise but complete\n"
+            f"- End with a clear question asking if they want to proceed\n"
+            f"\n"
+            f"Plan:\n{plan_text}\n"
+            f"\n"
+            f"Generate the confirmation message (be brief and well-formatted):"
+        )
+        
+        messages = [
+            SystemMessage(content="You are a helpful assistant that communicates execution plans clearly and concisely."),
+            HumanMessage(content=confirmation_prompt)
+        ]
+        
+        try:
+            response = self.llm.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            print(f"[{self.name}] ⚠ Message generation error: {e}")
+            # Fallback to formatted plan
+            return f"Do you want to proceed with the following plan?\n{plan_text}"
+
+    @staticmethod
+    def _format_plan_for_display(plan: List[Dict]) -> str:
+        """Format plan steps into a readable string."""
+        formatted_steps = []
+        for i, step in enumerate(plan, 1):
+            agent = step.get("agent", "Unknown")
+            goal = step.get("goal", "No description")
+            formatted_steps.append(f"{i}. [{agent}] {goal}")
+        return "\n".join(formatted_steps)
 
     @staticmethod
     def _auto_confirm(state: MABaseGraphState) -> MABaseGraphState:

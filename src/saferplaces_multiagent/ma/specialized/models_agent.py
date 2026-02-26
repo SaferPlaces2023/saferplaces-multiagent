@@ -306,18 +306,15 @@ class ModelsInvocationConfirm:
         state: MABaseGraphState
     ) -> MABaseGraphState:
         """Handle validation failure with user interrupt."""
-        error_content = "Parameters validation failed:\n\n"
-        for tool_name, tool_errors in validation_errors.items():
-            error_content += f"  {tool_name}:\n"
-            for arg, reason in tool_errors.items():
-                error_content += f"    - {arg}: {reason}\n"
-        
         print(f"[{self.name}] ⚠ Validation failed")
         print(f"Errors: {validation_errors}")
 
+        # Generate clear, user-friendly error message using LLM
+        error_message = self._generate_validation_error_message(validation_errors)
+
         # Request user intervention via interrupt
         interruption = interrupt({
-            "content": f"Some tool calls need to be reviewed or corrected:\n{error_content}",
+            "content": error_message,
             "interrupt_type": "invocation-validation"
         })
 
@@ -335,6 +332,84 @@ class ModelsInvocationConfirm:
             max_clarify_iterations=3
         )
         return user_validation_state
+    def _generate_validation_error_message(self, validation_errors: Dict[str, Dict[str, str]]) -> str:
+        """Generate a clear, schematic error message for validation failures using LLM."""
+        # Format validation errors as a readable list
+        errors_text = self._format_validation_errors_for_display(validation_errors)
+        
+        error_prompt = (
+            f"Generate a clear, concise message to inform the user about the following parameter validation failures.\n"
+            f"The message should be:\n"
+            f"- Schematic and organized (use bullet points or numbering)\n"
+            f"- Concise but complete, explaining what's wrong with each parameter\n"
+            f"- End with a clear invitation to revise and correct the parameters\n"
+            f"\n"
+            f"Validation errors:\n{errors_text}\n"
+            f"\n"
+            f"Generate the error message (be brief and well-formatted):"
+        )
+        
+        messages = [
+            SystemMessage(content="You are a helpful assistant that communicates parameter validation errors clearly and concisely."),
+            HumanMessage(content=error_prompt)
+        ]
+        
+        try:
+            response = _base_llm.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            print(f"[{self.name}] ⚠ Error message generation failed: {e}")
+            # Fallback to formatted errors
+            return f"Some parameters are invalid and need to be corrected:\n{errors_text}"
+
+    @staticmethod
+    def _format_validation_errors_for_display(validation_errors: Dict[str, Dict[str, str]]) -> str:
+        """Format validation errors into a readable string."""
+        formatted_errors = []
+        for tool_name, tool_errors in validation_errors.items():
+            formatted_errors.append(f"**{tool_name}:**")
+            for arg, reason in tool_errors.items():
+                formatted_errors.append(f"  - {arg}: {reason}")
+        return "\n".join(formatted_errors)
+    def _generate_tool_confirmation_message(self, tool_calls: List[ToolCall]) -> str:
+        """Generate a clear, schematic confirmation message for tool calls using LLM."""
+        # Format tool calls as a readable list
+        tool_calls_text = self._format_tool_calls_for_display(tool_calls)
+        
+        confirmation_prompt = (
+            f"Generate a clear, concise confirmation message for the user about executing the following tools.\n"
+            f"The message should be:\n"
+            f"- Schematic and organized (use bullet points or numbering)\n"
+            f"- Concise but complete\n"
+            f"- End with a clear question asking if they want to proceed\n"
+            f"\n"
+            f"Tools to execute:\n{tool_calls_text}\n"
+            f"\n"
+            f"Generate the confirmation message (be brief and well-formatted):"
+        )
+        
+        messages = [
+            SystemMessage(content="You are a helpful assistant that communicates tool invocations clearly and concisely."),
+            HumanMessage(content=confirmation_prompt)
+        ]
+        
+        try:
+            response = _base_llm.invoke(messages)
+            return response.content.strip()
+        except Exception as e:
+            print(f"[{self.name}] ⚠ Message generation error: {e}")
+            # Fallback to formatted tool calls
+            return f"Do you want to proceed with the following tool calls?\n{tool_calls_text}"
+
+    @staticmethod
+    def _format_tool_calls_for_display(tool_calls: List[ToolCall]) -> str:
+        """Format tool calls into a readable string."""
+        formatted_calls = []
+        for i, tc in enumerate(tool_calls, 1):
+            tool_name = tc.get("name", "Unknown")
+            tool_args = tc.get("args", {})
+            formatted_calls.append(f"{i}. {tool_name}({json.dumps(tool_args)})")
+        return "\n".join(formatted_calls)
 
     def _request_user_confirmation(self, state: MABaseGraphState) -> MABaseGraphState:
         """Request user confirmation for tool invocation."""
@@ -344,16 +419,12 @@ class ModelsInvocationConfirm:
         if invocation is None or not invocation.tool_calls or confirmation_state != INVOCATION_PENDING:
             return state
 
-        # Format tool calls for display
-        tool_calls_display = "\n".join(
-            f"  - {tc['name']}({tc.get('args')})"
-            for tc in invocation.tool_calls
-        )
-
-        print(f"Do you want to proceed with these tool calls?\n{tool_calls_display}")
+        # Generate clear confirmation message using LLM
+        confirmation_message = self._generate_tool_confirmation_message(invocation.tool_calls)
+        print(f"Requesting confirmation...\n{confirmation_message}")
 
         interruption = interrupt({
-            "content": f"Do you want to proceed with the tool calls?\n{tool_calls_display}",
+            "content": confirmation_message,
             "interrupt_type": "invocation-confirmation"
         })
 
