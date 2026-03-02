@@ -48,7 +48,7 @@ def build_specialized_retriever_subgraph():
     retriever_builder = StateGraph(MABaseGraphState)
     
     retriever_agent = DataRetrieverAgent()
-    retriever_invocation_confirm = DataRetrieverInvocationConfirm(enabled=True)
+    retriever_invocation_confirm = DataRetrieverInvocationConfirm(enabled=False)
     retriever_executor = DataRetrieverExecutor()
 
     retriever_builder.add_node(retriever_agent.name, retriever_agent)
@@ -76,7 +76,7 @@ def build_specialized_models_subgraph():
     models_builder = StateGraph(MABaseGraphState)
     
     models_agent = ModelsAgent()
-    models_invocation_confirm = ModelsInvocationConfirm(enabled=True)
+    models_invocation_confirm = ModelsInvocationConfirm(enabled=False)
     models_executor = ModelsExecutor()
 
     models_builder.add_node(models_agent.name, models_agent)
@@ -142,6 +142,8 @@ def build_multiagent_graph():
     graph_builder.add_edge(NodeNames.FINAL_RESPONDER, END)
     
     compiled_graph = graph_builder.compile(checkpointer=InMemorySaver())
+    # compiled_graph = graph_builder.compile()
+
     print(f"[Graph] ✓ Multiagent graph ready")
     return compiled_graph
 
