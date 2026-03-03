@@ -7,7 +7,7 @@ import geopandas as gpd
 
 from markupsafe import escape
 
-from flask import Response, request, jsonify, current_app as app, render_template
+from flask import Response, request, jsonify, current_app as app, render_template, send_from_directory
 
 from .. import GraphInterface
 from ... import utils, s3_utils
@@ -209,7 +209,65 @@ def render_layer(thread_id):
     return jsonify({'src': utils.s3uri_to_https(layer_render_src), 'metadata': metadata}), 200
 
 
-# DOC: === Generic routes [user-independent] ====
+# DOC: === Cesium routes ====
+
+CESIUM_DIST = "../../../../../safer-3d-cesium/demo/dist"
+
+@app.route("/cesium-viewer", methods=["POST"])
+def cesium_index():
+    user_id = request.form.get("user_id")
+    project_id = request.form.get("project_id")
+    thread_id = request.form.get('thread_id')
+
+    gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
+    if not gi:
+        return jsonify({"error": "GraphInterface not found"}), 404
+
+    return send_from_directory(CESIUM_DIST, "index.html")
+
+@app.route("/cesium-viewer/assets/<path:filename>")
+def cesium_assets(filename):
+    return send_from_directory(
+        os.path.join(CESIUM_DIST, "assets"),
+        filename
+    )
+
+@app.route("/cesium-viewer/cesium/<path:filename>")
+def cesium_cesium(filename):
+    return send_from_directory(
+        os.path.join(CESIUM_DIST, "cesium-viewer", "cesium"),
+        filename
+    )
+
+@app.route("/cesium-viewer/api/load-wds", methods=["POST"])
+def cesium_load_wds():
+    data = request.get_json(silent=True) or dict()
+
+    thread_id = data.get('thread_id')
+
+    gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
+    if not gi:
+        return jsonify({"error": "GraphInterface not found"}), 404
+    
+    layer_registry = gi.get_state('layer_registry', [])
+
+    is_wd_layer = lambda layer_data: layer_data.get('metadata', dict()).get('surface_type') == 'water-depth'
+    wd_layers = [l for l in layer_registry if is_wd_layer(l)]
+    
+    if len(wd_layers) == 0:
+        return jsonify({"skipping": "No water-depth layers found"}), 200
+    
+    wd3d_uri = gi.cesium_handler.preprocess_wd(wd_layers[0]['src'])
+    if not wd3d_uri:
+        return jsonify({"error": "Failed to preprocess water-depth layer"}), 500
+    
+    wd3d_url = utils.s3uri_to_https(wd3d_uri)
+
+    return jsonify({"wd3d_url": wd3d_url}), 200
+
+
+
+# DOC: === Generic routes [user-independent] ===
 
 @app.route('/get-layer-url', methods=['POST'])
 def get_layer_url():

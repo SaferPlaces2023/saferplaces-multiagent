@@ -18,6 +18,7 @@ from ..common import states as GraphStates
 # from .chat_handler import ChatHandler
 
 from .leafmap_interface import LeafmapInterface
+from .cesium_interface.cesium_handler import CesiumHandler
 
 # from IPython.display import display, Markdown, clear_output
 
@@ -114,7 +115,8 @@ class GraphInterface:
         thread_id: str,
         user_id: str,
         project_id: str,
-        map_handler: str | bool | None = None
+        map_handler: str | bool | None = None,
+        cesium_handler: bool | None = True
     ):
         self.G: CompiledStateGraph = graph
         self.thread_id = thread_id
@@ -137,7 +139,10 @@ class GraphInterface:
             else:
                 raise ValueError(f"Invalid map_handler type: {type(map_handler)}. Expected str or bool.")
             
-        
+        self.cesium_handler = None
+        if cesium_handler is True:
+            self.cesium_handler = CesiumHandler(user_id=self.user_id, project_id=self.project_id)
+
         s3_utils.setup_base_bucket(user_id=self.user_id, project_id=self.project_id)
         self.restore_state()
              
