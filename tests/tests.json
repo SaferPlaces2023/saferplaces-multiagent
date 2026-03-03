@@ -1,0 +1,23 @@
+{
+  "T001": {
+    "title": "Greetings",
+    "description": "Tests generic/greeting messages that should route directly to FinalResponder (no specialized agent needed).",
+    "command": "python -m tests.T001",
+    "TEST_MESSAGES": [
+      "Hi",
+      "Hello",
+      "What can you do?",
+      "What is the capital of France?"
+    ]
+  },
+  "T002": {
+    "title": "Geospatial",
+    "description": "Tests geospatial / flood-related messages that should trigger the supervisor plan and route to a specialized agent.",
+    "command": "python -m tests.T002",
+    "TEST_MESSAGES": [
+      ["Show me available layers", "yes"],
+      ["Create a digital twin for Rome", "yes"],
+      ["Run a flood simulation for this area", "yes"]
+    ]
+  }
+}
