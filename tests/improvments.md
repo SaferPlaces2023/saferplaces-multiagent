@@ -35,6 +35,6 @@ For the `RequestParser`, the comparison breaks down like this:
 
 The SKILL.md format would be **useful in a different place** in your codebase — specifically in the **SupervisorAgent**, where the LLM needs to decide *which agent to route to*. That's exactly the "when to use" problem SKILL.md solves.
 
-In request_parser.py, the current prompt is already well-suited: it's purely behavioral instructions for a single-purpose node. The SKILL.md format would add overhead without benefit there.
+In `request_parser.py`, the current prompt is already well-suited: it's purely behavioral instructions for a single-purpose node. The SKILL.md format would add overhead without benefit there.
 
 Where it **would** help: if you defined each specialized agent (layers, models, safercast) using a SKILL.md-style descriptor, the SupervisorAgent's prompt in supervisor.py could inject those descriptors as the "agent registry", giving the LLM richer "when to use" context per agent rather than just names.
