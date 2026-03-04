@@ -120,7 +120,7 @@ def parse_geotiff(path: str) -> dict:
                 "epsg": epsg if epsg else 0,
                 "name": str(src_crs),
                 "isWGS84": False,
-            }
+            } 
         
         clean = data.copy()
         mask = ~np.isfinite(clean)
