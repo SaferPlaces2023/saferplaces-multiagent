@@ -16,6 +16,7 @@
     "command": "python -m tests.run T002",
     "TEST_MESSAGES": [
       ["Show me available layers", "yes"],
+      ["Show me available layers", "no"],
       ["Create a digital twin for Rome", "yes"],
       ["Run a flood simulation for this area", "yes"]
     ]
