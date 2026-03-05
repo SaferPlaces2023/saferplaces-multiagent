@@ -55,7 +55,8 @@ def silence():
 with silence():
     from saferplaces_multiagent.agent_interface import GraphInterface, __GRAPH_REGISTRY__
     from saferplaces_multiagent.ma.chat.request_parser import Prompts as _RPPrompts
-    from saferplaces_multiagent.ma.orchestrator.supervisor import SupervisorPrompts as _SPPrompts
+    # from saferplaces_multiagent.ma.orchestrator.supervisor import SupervisorPrompts as _SPPrompts
+    from saferplaces_multiagent.ma.prompts.supervisor_agent_prompts import OrchestratorPrompts as _SPPrompts
     from saferplaces_multiagent.ma.chat.final_responder import Prompts as _FRPrompts
 
 
@@ -70,7 +71,7 @@ AGENT_REGISTRY = {
     ),
     "supervisor_agent": (
         "SupervisorAgent",
-        _SPPrompts.SYSTEM_PROMPT,
+        _SPPrompts.MainContext.stable().message
     ),
     "supervisor_planner_confirm": (
         "SupervisorPlannerConfirm",

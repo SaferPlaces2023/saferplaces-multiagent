@@ -173,7 +173,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-# tests/
+tests/**/*.ipynb
 .langgraph_api/
 
 # bat files
