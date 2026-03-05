@@ -211,13 +211,15 @@ def render_layer(thread_id):
 
 # DOC: === Cesium routes ====
 
-CESIUM_DIST = "../../../../../safer-3d-cesium/demo/dist"
+# CESIUM_DIST = "../../../../../safer-3d-cesium/demo/dist"
+CESIUM_DIST = f"{app.static_folder}/ext/safer-3d-cesium/demo/dist"
 
 @app.route("/cesium-viewer", methods=["POST"])
 def cesium_index():
     user_id = request.form.get("user_id")
     project_id = request.form.get("project_id")
     thread_id = request.form.get('thread_id')
+    app.static_folder
 
     gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
     if not gi:
