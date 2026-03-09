@@ -158,6 +158,8 @@ class GraphInterface:
         def restore_layer_registry():
             lr_uri = f"{s3_utils._STATE_BUCKET_(dict(user_id=self.user_id, project_id=self.project_id))}/layer_registry.json"
             print(f"Restoring layer registry from {lr_uri} ...")
+            if not s3_utils.s3_exists(lr_uri):
+                return []
             lr_fp = s3_utils.s3_download(uri=lr_uri, fileout=os.path.join(os.getcwd(), f'{self.user_id}__{self.project_id}__layer_registry.json'))   # TODO: TMP DIR! + garbage collect
             if lr_fp is not None and os.path.exists(lr_fp):
                 with open(lr_fp, 'r') as f:
@@ -170,7 +172,10 @@ class GraphInterface:
         event_value = { 
             # 'messages': [ GraphStates.build_layer_registry_system_message(restored_layer_registry) ],
             'messages': [],
-            'layer_registry': restored_layer_registry 
+            'layer_registry': restored_layer_registry,
+
+            'user_id': self.user_id,
+            'project_id': self.project_id
         }
         _ = list( self.G.stream(
             input = event_value,

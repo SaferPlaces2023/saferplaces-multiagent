@@ -11,6 +11,7 @@ from .common import (
     s3_utils
 )
 
+from . import multiagent_node
 from .multiagent_graph import graph
 from .agent_interface import __GRAPH_REGISTRY__, GraphInterface
 

@@ -1,6 +1,8 @@
 
 import json
 
+from saferplaces_multiagent.multiagent_node import MultiAgentNode
+
 from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
@@ -43,15 +45,12 @@ class Prompts:
 
 
 
-class FinalResponder:
+class FinalResponder(MultiAgentNode):
     """Agent that generates the final user-facing response."""
 
-    def __init__(self):
-        self.name = NodeNames.FINAL_RESPONDER
+    def __init__(self, name: str = NodeNames.FINAL_RESPONDER, log_state: bool = True):
+        super().__init__(name, log_state)
         self.llm = _base_llm
-
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{NodeNames.FINAL_RESPONDER}] → Generating response...")

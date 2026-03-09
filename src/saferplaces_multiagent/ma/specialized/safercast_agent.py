@@ -4,6 +4,8 @@ import json
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
 from langgraph.types import interrupt
 
+from saferplaces_multiagent.multiagent_node import MultiAgentNode
+
 from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from .tools.dpc_retriever_tool import DPCRetrieverTool
@@ -135,11 +137,11 @@ class ToolRegistry:
 # Data Retriever Agent
 # ============================================================================
 
-class DataRetrieverAgent:
+class DataRetrieverAgent(MultiAgentNode):
     """Specialized agent for data retrieval and tool selection."""
 
-    def __init__(self) -> None:
-        self.name = NodeNames.RETRIEVER_AGENT
+    def __init__(self, name: str = NodeNames.RETRIEVER_AGENT, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
         self.tools = ToolRegistry().tools
         self.llm = _base_llm.bind_tools(list(self.tools.values()))
 
@@ -212,11 +214,11 @@ class DataRetrieverAgent:
 # Data Retriever Invocation Confirmation
 # ============================================================================
 
-class DataRetrieverInvocationConfirm:
+class DataRetrieverInvocationConfirm(MultiAgentNode):
     """Confirmation and validation checkpoint for tool invocations."""
 
-    def __init__(self, enabled: bool = False) -> None:
-        self.name = NodeNames.RETRIEVER_INVOCATION_CONFIRM
+    def __init__(self, name: str = NodeNames.RETRIEVER_INVOCATION_CONFIRM, enabled: bool = False, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
         self.enabled = enabled
         self.confirmation_handler = ToolInvocationConfirmationHandler()
         self.validation_handler = ToolValidationResponseHandler()
@@ -452,11 +454,11 @@ class DataRetrieverInvocationConfirm:
 # Data Retriever Executor
 # ============================================================================
 
-class DataRetrieverExecutor:
+class DataRetrieverExecutor(MultiAgentNode):
     """Executor for retriever tool invocations."""
 
-    def __init__(self) -> None:
-        self.name = NodeNames.RETRIEVER_EXECUTOR
+    def __init__(self, name: str = NodeNames.RETRIEVER_EXECUTOR, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
         self.layers_agent = LayersAgent()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:

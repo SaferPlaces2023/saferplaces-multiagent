@@ -1,8 +1,11 @@
 import json
 
+import pandas as pd
+
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
+from ...multiagent_node import MultiAgentNode
 from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
@@ -32,14 +35,11 @@ class Prompts:
     ))
 
 
-class RequestParser:
+class RequestParser(MultiAgentNode):
 
-    def __init__(self):
-        self.name = NodeNames.REQUEST_PARSER
+    def __init__(self, name: str = NodeNames.REQUEST_PARSER, log_state: bool = True):
+        super().__init__(name, log_state)
         self.llm = _base_llm.with_structured_output(ParsedRequest)
-
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{NodeNames.REQUEST_PARSER}] → Parsing request...")

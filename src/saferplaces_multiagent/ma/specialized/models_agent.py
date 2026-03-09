@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
 from langgraph.types import interrupt
 
+from saferplaces_multiagent.multiagent_node import MultiAgentNode
+
 from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames
@@ -139,11 +141,11 @@ class ToolRegistry:
 # Models Agent
 # ============================================================================
 
-class ModelsAgent:
+class ModelsAgent(MultiAgentNode):
     """Agent that executes environmental models using tools backed by APIs."""
 
-    def __init__(self) -> None:
-        self.name = NodeNames.MODELS_AGENT
+    def __init__(self, name: str = NodeNames.MODELS_AGENT, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
         self.tools = ToolRegistry().tools
         self.llm = _base_llm.bind_tools(list(self.tools.values()))
 
@@ -216,11 +218,11 @@ class ModelsAgent:
 # Models Invocation Confirmation
 # ============================================================================
 
-class ModelsInvocationConfirm:
+class ModelsInvocationConfirm(MultiAgentNode):
     """Confirmation and validation checkpoint for models tool invocations."""
 
-    def __init__(self, enabled: bool = False) -> None:
-        self.name = NodeNames.MODELS_INVOCATION_CONFIRM
+    def __init__(self, name: str = NodeNames.MODELS_INVOCATION_CONFIRM, enabled: bool = False, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
         self.enabled = enabled
         self.confirmation_handler = ToolInvocationConfirmationHandler()
         self.validation_handler = ToolValidationResponseHandler()
@@ -452,11 +454,11 @@ class ModelsInvocationConfirm:
 # Models Executor
 # ============================================================================
 
-class ModelsExecutor:
+class ModelsExecutor(MultiAgentNode):
     """Executor for models tool invocations."""
 
-    def __init__(self) -> None:
-        self.name = NodeNames.MODELS_EXECUTOR
+    def __init__(self, name: str = NodeNames.MODELS_EXECUTOR, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
         self.layers_agent = LayersAgent()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:

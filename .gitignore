@@ -185,3 +185,6 @@ Dockerfile.local
 
 *ngrok*
 docs_pj
+
+# logs
+**/**__state_log__*.json

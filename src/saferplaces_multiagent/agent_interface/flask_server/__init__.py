@@ -6,8 +6,8 @@ from .. import __GRAPH_REGISTRY__
 def create_app():
     app = Flask(
         __name__,
-        static_folder = '../../../../../saferplaces-agent-frontend/public',
-        template_folder = '../../../../../saferplaces-agent-frontend/public'
+        static_folder = '../../../../../saferplaces-multiagent-frontend/public',
+        template_folder = '../../../../../saferplaces-multiagent-frontend/public'
     )
 
     # DOC: Chiave segreta per firmare le sessioni

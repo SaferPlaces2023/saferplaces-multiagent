@@ -7,6 +7,8 @@ from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage
 
+from saferplaces_multiagent.multiagent_node import MultiAgentNode
+
 from ...common.states import MABaseGraphState
 from ...common.base_models import Layer
 from ...common.utils import _base_llm
@@ -378,11 +380,11 @@ class ChooseLayerTool(BaseTool):
             return f"Error choosing layer: {str(e)}"
 
 
-class LayersAgent:
+class LayersAgent(MultiAgentNode):
     """Fast agent for managing geospatial layers - executes tools immediately."""
     
-    def __init__(self):
-        self.name = NodeNames.LAYERS_AGENT
+    def __init__(self, name: str = NodeNames.LAYERS_AGENT, log_state: bool = True):
+        super().__init__(name, log_state)
         self.tools = [
             ListLayersTool(),
             GetLayerTool(),

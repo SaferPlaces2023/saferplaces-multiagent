@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, BaseMessage
 from langgraph.types import interrupt
 
+from saferplaces_multiagent.multiagent_node import MultiAgentNode
+
 from ...common.states import MABaseGraphState, StateManager
 from ...common import utils
 from ...common.utils import _base_llm
@@ -191,11 +193,11 @@ class ExecutionPlan(BaseModel):
 # Supervisor Agents
 # ============================================================================
 
-class SupervisorAgent:
+class SupervisorAgent(MultiAgentNode):
     """Agent responsible for planning and orchestrating execution steps."""
 
-    def __init__(self):
-        self.name = NodeNames.SUPERVISOR_AGENT
+    def __init__(self, name: str = NodeNames.SUPERVISOR_AGENT, log_state: bool = True):
+        super().__init__(name, log_state)
         self.llm = _base_llm.with_structured_output(ExecutionPlan)
         self.layer_agent = LayersAgent()
 
@@ -288,11 +290,11 @@ class SupervisorAgent:
         return state
 
 
-class SupervisorPlannerConfirm:
+class SupervisorPlannerConfirm(MultiAgentNode):
     """Confirmation checkpoint for user approval of execution plan."""
 
-    def __init__(self, enabled: bool = False):
-        self.name = NodeNames.SUPERVISOR_PLANNER_CONFIRM
+    def __init__(self, name: str = NodeNames.SUPERVISOR_PLANNER_CONFIRM, enabled: bool = False, log_state: bool = True):
+        super().__init__(name, log_state)
         self.enabled = enabled
         self.llm = _base_llm
         self.max_clarify_iterations = 3  # Prevent infinite clarify loops
@@ -529,11 +531,11 @@ class SupervisorPlannerConfirm:
         return state
 
 
-class SupervisorRouter:
+class SupervisorRouter(MultiAgentNode):
     """Router that determines the next execution node based on plan state."""
 
-    def __init__(self):
-        self.name = NodeNames.SUPERVISOR_ROUTER
+    def __init__(self, name: str = NodeNames.SUPERVISOR_ROUTER, log_state: bool = True):
+        super().__init__(name, log_state)
         self.layer_agent = LayersAgent()
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
