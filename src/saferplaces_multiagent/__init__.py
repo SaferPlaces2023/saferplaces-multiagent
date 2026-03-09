@@ -1,6 +1,21 @@
+import logging
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_SILENCE_LOGGERS = [
+    "boto3",
+    "botocore",
+    "s3transfer",
+    "urllib3",
+    "openai",
+    "httpx",
+    "httpcore",
+]
+
+for name in _SILENCE_LOGGERS:
+    logging.getLogger(name).setLevel(logging.CRITICAL)
 
 
 from . import common
