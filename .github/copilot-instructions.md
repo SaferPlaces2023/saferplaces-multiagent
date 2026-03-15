@@ -1,5 +1,33 @@
 # SaferPlaces Multiagent — Istruzioni per Copilot
 
+## Ordine di priorità delle istruzioni
+
+In caso di conflitti o ambiguità tra fonti diverse, seguire questo ordine:
+
+1. `.github/copilot-instructions.md` — contesto workspace (architettura, convenzioni, tech stack)
+2. `.github/instructions/*.md` — istruzioni specifiche per area (es. tools, agents, flask)
+3. `implementations/_plan-todo.md` + `PLN-*.md` — open items e piani attivi in progressione
+4. `implementations/archive/` — piani completati e report storici (solo consultazione)
+5. `docs/index.md` — hub di navigazione e fonte di verità per il namespace degli ID
+6. `docs/multiagent-guidlines.md` / `docs/multiagent-guidlines-tools.md` — linee guida di design del sistema
+7. `tests/tests.json` + `tests/result/` — comportamento atteso verificato
+8. `README.md` — overview generale del progetto
+9. `docs/` — documentazione di riferimento (se presente)
+
+---
+
+## Convenzione Documentazione
+
+| Documento | Tipo | Scopo |
+|---|---|---|
+| `docs/index.md` | **Vivente** | Hub navigazione e fonte di verità del namespace degli ID (`F###`, `PLN-###`, ecc.). Si aggiorna aggiungendo nuovi prefissi. |
+| `docs/functional-spec*.md` | **Vivente** | Stato attuale delle funzionalità (F). Si modifica quando una feature cambia. |
+| `implementations/_plan-todo.md` | **Vivente** | Solo Open items e Active Plans. I completed stanno in `archive/`. |
+| `implementations/PLN-###-*.md` | **Attivo** | Piano in corso. Descrittivo — nessun codice inline. Codice in `PLN-###-files/`. |
+| `implementations/archive/PLN-###-*.md` | **Storico** | Piani completati. Sola lettura — reference storico. |
+
+---
+
 ## Panoramica del progetto
 
 Sistema **multi-agent AI gerarchico** costruito su LangGraph, integrato con SaferPlaces (piattaforma di simulazione alluvioni). Gli agenti orchestrano tool geospaziali, modelli di alluvione e recupero dati attraverso un ciclo plan → confirm → execute.
