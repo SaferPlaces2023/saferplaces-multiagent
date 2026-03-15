@@ -23,7 +23,9 @@ In caso di conflitti o ambiguità, seguire quest'ordine:
 | `docs/architecture.md` | Schema DB, route API, variabili d'ambiente, topologia infra |
 | `implementations/_plan-todo.md` | Open items e piani attivi |
 | `implementations/archive/` | Piani completati (solo lettura) |
-| `docs/multiagent-guidlines*.md` | Linee guida di design del sistema |
+| `docs/functional-spec.md` | Stato corrente: agenti, stato, routing (F###) |
+| `docs/functional-spec-services.md` | Stato corrente: tool e servizi esterni (S###) |
+| `docs/functional-spec-map.md` | Stato corrente: layer registry e geospaziale (M###) |
 | `tests/tests.json` + `tests/result/` | Comportamento atteso verificato |
 | `README.md` | Overview generale del progetto |
 
