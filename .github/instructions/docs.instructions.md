@@ -8,8 +8,11 @@ applyTo: "docs/**"
 
 | Documento | Tipo | Regola |
 |---|---|---|
-| `docs/index.md` | **Vivente** | Fonte di verità del namespace ID. Aggiornare aggiungendo nuovi prefissi, mai rimuovere righe esistenti. |
-| `docs/functional-spec*.md` | **Vivente** | Stato attuale delle feature (`F###`). Modificare quando una feature cambia stato. |
+| `docs/index.md` | **Riferimento** | Hub di navigazione e fonte di verità del namespace ID. Aggiornare aggiungendo nuovi prefissi, mai rimuovere righe esistenti. |
+| `docs/functional-spec.md` | **Vivente** | Feature `F###` (scenario, dati, utility). Modificare quando una feature cambia stato. |
+| `docs/functional-spec-services.md` | **Vivente** | Feature `S###` (servizi esterni, API, env vars). |
+| `docs/functional-spec-map.md` | **Vivente** | Feature `M###` (mappa, layer geospaziali: Cesium 3D, Leafmap, geospatial ops). |
+| `docs/architecture.md` | **Vivente** | Schema DB corrente, route API con protezione, variabili d'ambiente, topologia infra. Aggiornato al completamento di ogni PLN che tocca DB/API/infra. |
 | `docs/multiagent-guidlines*.md` | **Riferimento** | Linee guida di design. Non modificare senza una decisione architetturale esplicita. |
 
 ## `docs/index.md` — Namespace ID

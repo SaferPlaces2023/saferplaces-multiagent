@@ -2,18 +2,30 @@
 
 ## Ordine di priorità delle istruzioni
 
-1. `.github/copilot-instructions.md` — architettura e comandi essenziali
-2. `.github/instructions/*.md` — istruzioni specifiche per area (caricate con `applyTo`):
+In caso di conflitti o ambiguità, seguire quest'ordine:
+
+1. `.github/copilot-instructions.md` — contesto workspace (tech stack, struttura, comandi)
+2. `.github/instructions/*.instructions.md` — regole per dominio (caricate con `applyTo`):
    - `coding-standards.instructions.md` → `**/*.py` — naming, linting, nodi, tool, state
    - `services.instructions.md` → `src/**` — S3, Flask, LangGraph, testing
    - `planning.instructions.md` → `implementations/**` — workflow PLN-###, _plan-todo
    - `docs.instructions.md` → `docs/**` — namespace ID, stile documentazione
-3. `implementations/_plan-todo.md` + `PLN-*.md` — open items e piani attivi
-4. `implementations/archive/` — piani completati (solo consultazione)
-5. `docs/index.md` — fonte di verità per il namespace degli ID (`F###`, `PLN-###`, …)
-6. `docs/multiagent-guidlines*.md` — linee guida di design del sistema
-7. `tests/tests.json` + `tests/result/` — comportamento atteso verificato
-8. `README.md` — overview generale del progetto
+3. `/memories/repo/` — fatti verificati sul codebase
+4. `docs/functional-spec*.md` — stato corrente delle funzionalità (fonte di verità vivente)
+5. `implementations/PLN-001-*.md` — architettura generale e roadmap
+6. `implementations/PLN-002-*.md` … — dettagli implementativi per step
+
+### Riferimenti aggiuntivi
+
+| File | Scopo |
+|---|---|
+| `docs/index.md` | Hub di navigazione e fonte di verità per il namespace degli ID |
+| `docs/architecture.md` | Schema DB, route API, variabili d'ambiente, topologia infra |
+| `implementations/_plan-todo.md` | Open items e piani attivi |
+| `implementations/archive/` | Piani completati (solo lettura) |
+| `docs/multiagent-guidlines*.md` | Linee guida di design del sistema |
+| `tests/tests.json` + `tests/result/` | Comportamento atteso verificato |
+| `README.md` | Overview generale del progetto |
 
 ---
 
