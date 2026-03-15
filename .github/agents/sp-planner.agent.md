@@ -1,6 +1,6 @@
 ---
 name: sp-planner
-description: "Usa per: creare, modificare o revisionare le specifiche funzionali (F###, U###, S###, M### in docs/) e i piani di implementazione (PLN-###-*.md in implementations/). Applica il workflow F/U/S/M → _plan-todo.md → PLN-### → archive/. I documenti di piano sono descrittivi — nessun blocco di codice inline."
+description: "Usa per: creare, modificare o revisionare le specifiche funzionali (F### in docs/) e i piani di implementazione (PLN-###-*.md in implementations/). Applica il workflow F### → _plan-todo.md → PLN-### → archive/. I documenti di piano sono descrittivi — nessun blocco di codice inline."
 tools:
   - read/readFile
   - read/problems
@@ -33,7 +33,7 @@ Sei un implementation planner specializzato per il progetto **SaferPlaces Multia
 ## Workflow obbligatorio
 
 ```
-Functional (F/U/S/M)  →  _plan-todo.md (Open)  →  PLN-### attivo  →  completato  →  archive/  →  Functional diventa "current"
+F###  →  _plan-todo.md (Open)  →  PLN-### attivo  →  completato  →  archive/  →  F### diventa "current"
 ```
 
 1. **Functional spec** — ogni feature ha un ID (F###, U###, S###, M###) e uno status (`✅ active`, `🚧 in progress`, `❌ removed`). Il documento è *vivente*: non si cancellano righe, si aggiorna lo status.
