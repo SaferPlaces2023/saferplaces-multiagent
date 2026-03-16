@@ -72,6 +72,7 @@ I prompt sono versionati in `ma/prompts/supervisor_agent_prompts.py`.
 - Usare `OrchestratorPrompts.<Section>.<method>()` per recuperare un prompt
 - Ogni metodo restituisce un dataclass `Prompt` con `.to(MessageClass)` per LangChain
 - Aggiungere nuove versioni come nuovi metodi statici (`v001()`, `v002()`, …) — **non sovrascrivere mai `stable()`**
+- I metodi `stable()` sono chiamati a runtime dentro i nodi del grafo (non all'import): questo li rende sovrascrivibili via `unittest.mock.patch.object` nei test senza modificare il codice sorgente — vedere `tests/T006_prompt_override.py` e la sezione Testing di `services.instructions.md`
 
 ## State (`MABaseGraphState`)
 

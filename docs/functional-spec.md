@@ -161,6 +161,31 @@ def validate_X(**kwargs) -> Optional[str]:
 
 ---
 
+## F008 — Prompt Override Testing
+
+**Descrizione**: Pattern per testare il comportamento del grafo al variare di un prompt LLM, senza modificare il codice sorgente.
+
+**Motivazione**: I metodi `stable()` di `OrchestratorPrompts` sono `@staticmethod` chiamati a runtime dentro i nodi del grafo — non all'import né alla costruzione del grafo. Questo li rende sovrascrivibili via `unittest.mock.patch.object` per la durata di un test, senza effetti collaterali.
+
+**Pattern**:
+```python
+from unittest.mock import patch
+from saferplaces_multiagent.ma.prompts.supervisor_agent_prompts import OrchestratorPrompts
+from saferplaces_multiagent.ma.prompts import Prompt
+
+def _my_override() -> Prompt:
+    return Prompt({"title": "...", "description": "...", "command": "", "message": "..."})
+
+with patch.object(OrchestratorPrompts.MainContext, "stable", _my_override):
+    run_tests(MESSAGES, result_file=result_file)
+```
+
+**Limiti**: se in futuro i prompt venissero cachati alla costruzione del grafo, il meccanismo smetterebbe di funzionare — occorrerebbe passare i prompt come parametri a `GraphInterface`.
+
+**Esempio**: `tests/T006_prompt_override.py` — supervisor forzato a produrre sempre un piano vuoto; risultato in `tests/result/T006.md`.
+
+---
+
 ## Topologia grafo principale
 
 ```
