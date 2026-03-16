@@ -1,4 +1,5 @@
 import os
+import requests
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
@@ -321,9 +322,8 @@ class MeteoblueRetrieverTool(BaseTool):
         """
         api_url = self._get_api_url()
 
-        # TODO: Uncomment when ready for production
-        # import requests
-        # return requests.post(api_url, json=payload)
+
+        return requests.post(api_url, json=payload)
 
         # Temporary mock response for testing
         return self._mock_api_response()

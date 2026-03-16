@@ -35,6 +35,8 @@ SAFERCAST_AGENT_DESCRIPTION = {
     ]
 }
 
+SAFERCAST_AGENT_TOOLS = [DPCRetrieverTool, MeteoblueRetrieverTool]
+
 # Invocation confirmation states
 INVOCATION_PENDING = "pending"
 INVOCATION_ACCEPTED = "accepted"
@@ -120,7 +122,7 @@ class ToolRegistry:
 
     def _initialize_tools(self) -> None:
         """Initialize all available retriever tools."""
-        active_tools = [tool() for tool in [DPCRetrieverTool, MeteoblueRetrieverTool]]
+        active_tools = [tool() for tool in SAFERCAST_AGENT_TOOLS]
         self._tools = {tool.name: tool for tool in active_tools}
 
     @property

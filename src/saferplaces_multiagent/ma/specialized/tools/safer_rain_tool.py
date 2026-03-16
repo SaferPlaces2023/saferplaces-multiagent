@@ -1,4 +1,6 @@
 import os
+import requests
+
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, AliasChoices
@@ -330,9 +332,7 @@ class SaferRainTool(BaseTool):
         """
         api_url = self._get_api_url()
 
-        # TODO: Uncomment when ready for production
-        # import requests
-        # return requests.post(api_url, json=payload)
+        return requests.post(api_url, json=payload)
 
         # Temporary mock response for testing
         return self._mock_api_response()

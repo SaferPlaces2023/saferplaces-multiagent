@@ -11,6 +11,7 @@ from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool
+from .tools.digital_twin_tool import DigitalTwinTool
 from .layers_agent import LayersAgent
 from .confirmation_utils import ToolInvocationConfirmationHandler
 from .validation_utils import ToolValidationResponseHandler
@@ -26,6 +27,7 @@ MODELS_AGENT_DESCRIPTION = {
     "description": (
         "Specialized agent that executes environmental models via APIs: flood (rain or storm-surge), "
         "fire propagation, structural impact analyses and similar scenarios. "
+        "It often uses digital twin data as input for simulations and analyses and it can create digital twins for new areas. "
         "It exposes tools that run models and returns generated layers or reports for downstream processing."
     ),
     "examples": [
@@ -34,6 +36,8 @@ MODELS_AGENT_DESCRIPTION = {
         "Estimate compromised structures after a flood event"
     ]
 }
+
+MODELS_AGENT_TOOLS = [DigitalTwinTool, SaferRainTool]
 
 # Invocation confirmation states
 INVOCATION_PENDING = "pending"
@@ -124,7 +128,7 @@ class ToolRegistry:
 
     def _initialize_tools(self) -> None:
         """Initialize all available models tools."""
-        active_tools = [tool() for tool in [SaferRainTool]]
+        active_tools = [tool() for tool in MODELS_AGENT_TOOLS]
         self._tools = {tool.name: tool for tool in active_tools}
 
     @property

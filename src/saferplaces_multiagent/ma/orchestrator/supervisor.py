@@ -116,7 +116,7 @@ class SupervisorAgent(MultiAgentNode):
         validated_steps = [
             step.model_dump()
             for step in response.steps
-            if step.agent in [agent['name'] for agent in OrchestratorPrompts.AGENT_REGISTRY]
+            if step.agent in [agent['name'] for agent in OrchestratorPrompts.Plan.AGENT_REGISTRY]
         ]
 
         state["plan"] = validated_steps
