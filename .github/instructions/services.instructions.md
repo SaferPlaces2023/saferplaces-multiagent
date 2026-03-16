@@ -78,12 +78,14 @@ with patch.object(OrchestratorPrompts.MainContext, "stable", _my_prompt_override
 Per metodi che accettano `state` come parametro, la firma del mock deve rispettarla:
 
 ```python
-def _my_override(state) -> Prompt:
+def _my_override(state: MABaseGraphState, **kwargs) -> Prompt:
     return Prompt({ ... })
 
 with patch.object(OrchestratorPrompts.Plan.CreatePlan, "stable", _my_override):
     run_tests(MESSAGES, result_file=result_file)
 ```
+
+Se il metodo originale accetta anche parametri aggiuntivi (es. `user_question: str`), includerli nella firma del mock.
 
 Esecuzione:
 

@@ -13,9 +13,11 @@
 
 - [ ] **IMP-003** — Formalizzare i descrittori degli agenti (`MODELS_AGENT_DESCRIPTION`, `SAFERCAST_AGENT_DESCRIPTION`, `LAYERS_AGENT_DESCRIPTION`) in un formato strutturato condiviso (es. `AgentDescriptor` Pydantic model con campi `name`, `description`, `examples`, `when_to_use`) invece di plain dict. Semplifica la validazione e l'estensibilità quando si aggiungono nuovi agenti.
 
+- [ ] **IMP-005** — Alternativamente, services.instructions.md descrive il test override, ma con firma obsoleta (manca il parametro state per metodi che lo richiedono).
+
 ## Active Plans
 
-> **Prossimo numero disponibile: PLN-004** — aggiornare questa riga ogni volta che si crea o archivia un piano.
+> **Prossimo numero disponibile: PLN-005** — aggiornare questa riga ogni volta che si crea o archivia un piano.
 
 | Piano | Titolo | File target |
 |---|---|---|

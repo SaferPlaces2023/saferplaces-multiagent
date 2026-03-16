@@ -14,7 +14,7 @@ Nessun prefisso è condiviso tra categorie diverse.
 
 | Prefisso | Categoria | Formato | Esempio | File di specifica |
 |---|---|---|---|---|
-| `F` | Feature — scenario, dati, utility | `F###` | `F001` | `docs/functional-spec.md` |
+| `F` | Feature — scenario, dati, utility | `F###` | `F001`–`F009` | `docs/functional-spec.md` |
 | `S` | Feature — servizi esterni, API, env vars | `S###` | `S001` | `docs/functional-spec-services.md` |
 | `M` | Feature — mappa, layer geospaziali (Cesium, Leafmap, geospatial ops) | `M###` | `M001` | `docs/functional-spec-map.md` |
 | `PLN` | Piano di implementazione | `PLN-###` | `PLN-001` | `implementations/PLN-###-*.md` |

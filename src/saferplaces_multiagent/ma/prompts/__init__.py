@@ -26,5 +26,7 @@ class Prompt:
 
 
 from . import (
-    supervisor_agent_prompts
+    supervisor_agent_prompts,
+    request_parser_prompts,
+    final_responder_prompts
 )

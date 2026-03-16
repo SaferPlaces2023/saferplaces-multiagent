@@ -67,12 +67,95 @@ class MyTool(BaseTool):
 
 ## Prompt
 
-I prompt sono versionati in `ma/prompts/supervisor_agent_prompts.py`.
+I prompt sono organizzati in moduli dedicati per agente in `ma/prompts/`. Ogni modulo segue una gerarchia nidificata di classi con metodi `stable()` e versioni alternative.
 
-- Usare `OrchestratorPrompts.<Section>.<method>()` per recuperare un prompt
-- Ogni metodo restituisce un dataclass `Prompt` con `.to(MessageClass)` per LangChain
-- Aggiungere nuove versioni come nuovi metodi statici (`v001()`, `v002()`, …) — **non sovrascrivere mai `stable()`**
-- I metodi `stable()` sono chiamati a runtime dentro i nodi del grafo (non all'import): questo li rende sovrascrivibili via `unittest.mock.patch.object` nei test senza modificare il codice sorgente — vedere `tests/T006_prompt_override.py` e la sezione Testing di `services.instructions.md`
+### Architettura
+
+- **Modulo base**: `ma/prompts/<agent>_prompts.py` — es. `supervisor_agent_prompts.py`
+- **Classe principale**: `<Agent>Prompts` — es. `OrchestratorPrompts`
+- **Sezioni logiche**: classi PascalCase nidificate — es. `MainContext`, `Plan`, `PlanConfirmation`
+- **Metodi statici**: `stable()` (default/produzione), `v001()`, `v002()`, … (versioni A/B test)
+
+### Dataclass Prompt
+
+Ogni metodo restituisce un dataclass `Prompt` (in `ma/prompts/__init__.py`):
+
+| Campo | Scopo |
+|---|---|
+| `title` | Nome mnemonico del prompt |
+| `description` | Descrizione breve del ruolo |
+| `command` | Flag per comandi speciali (solitamente vuoto) |
+| `message` | Testo completo del prompt per l'LLM |
+
+**Conversione LangChain**:
+```python
+prompt = OrchestratorPrompts.MainContext.stable()
+message = prompt.to(SystemMessage)  # → SystemMessage(content=prompt.message)
+```
+
+### Pattern: Signature dei metodi
+
+**Senza stato** (prompt generici):
+```python
+class MainContext:
+    @staticmethod
+    def stable() -> Prompt:
+        return Prompt({...})
+```
+
+**Con stato** (context-aware):
+```python
+class CreatePlan:
+    @staticmethod
+    def stable(state: MABaseGraphState, **kwargs) -> Prompt:
+        parsed_request = state.get("parsed_request")
+        return Prompt({...})
+```
+
+**Con parametri aggiuntivi**:
+```python
+class RequestExplanation:
+    @staticmethod
+    def stable(state: MABaseGraphState, user_question: str, **kwargs) -> Prompt:
+        return Prompt({...})
+```
+
+### Convenzioni di naming
+
+| Elemento | Convenzione | Esempio |
+|---|---|---|
+| Classe principale | `<Agent>Prompts` | `OrchestratorPrompts`, `DataRetrieverPrompts` |
+| Classi di sezione | PascalCase semantico | `MainContext`, `Plan`, `PlanConfirmation` |
+| Metodi statici | `stable()` / `v###()` | `stable()`, `v001()`, `v002()` |
+| Costanti | `SCREAMING_SNAKE_CASE` | `AGENT_REGISTRY`, `PLAN_RESPONSE_LABELS` |
+| Helper privati | prefisso `_`, snake_case | `_format_plan_for_display()` |
+
+### Composizione gerarchica
+
+I prompt complessi sono costruiti incrementalmente:
+
+```
+OrchestratorPrompts
+├── MainContext.stable()              # System role
+├── Plan.CreatePlan.stable(state)     # Task-specific context
+├── Plan.PlanConfirmation.*           # Sub-context
+└── …
+```
+
+Ogni livello aggiunge responsabilità e contesto.
+
+### Versionamento
+
+- **`stable()`**: versione in produzione (default) — metodo chiamato a runtime nei nodi **mai all'import**
+- **`v001()`, `v002()`, …**: versioni alternative per test A/B — override via `unittest.mock.patch.object` (vedi Testing in `services.instructions.md`)
+- **Importante**: la chiamata happening a runtime consente il patch dinamico senza modificare il codice sorgente
+
+### Best practices
+
+- **Non** sovrascrivere un prompt `stable()` — aggiungere un nuovo metodo versionato
+- **Non** hardcodare testo nei nodi — usare sempre `OrchestratorPrompts.<Path>.stable(state)`
+- Raggruppare prompts correlati nella stessa sezione per riusabilità
+- Usare costanti (`AGENT_REGISTRY`, etc.) per liste riutilizzabili
 
 ## State (`MABaseGraphState`)
 

@@ -9,6 +9,7 @@ from ...multiagent_node import MultiAgentNode
 from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
+from ..prompts import request_parser_prompts
 
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
@@ -17,22 +18,6 @@ class ParsedRequest(BaseModel):
     intent: str = Field(description="Main high-level intent")
     entities: List[str] = Field(default_factory=list, description="List of relevant entities")
     raw_text: str = Field(description="Original user input text")
-
-
-class Prompts:
-
-    SYSTEM_REQUEST_PROMPT = '\n'.join((
-        "You are an expert assistant that converts user requests into a structured execution request.",
-        "",
-        "Your tasks:",
-        "- Extract the main high-level intent of the request (as a short phrase).",
-        "- Extract a list of relevant entities explicitly mentioned in the request.",
-        "- Extract explicit parameters only if they are clearly stated.",
-        "- Copy the original user input as a field.",
-        "- Do not invent or hallucinate information. If a field is not present, leave it empty or as an empty list.",
-        "",
-        "Be precise, concise, and execution-oriented."
-    ))
 
 
 class RequestParser(MultiAgentNode):
@@ -53,11 +38,12 @@ class RequestParser(MultiAgentNode):
         if not isinstance(state["messages"][-1], HumanMessage):
             return state
         
-        input_prompt = state["messages"][-1].content
+        prompt_input = state["messages"][-1].content
+        prompt_context = request_parser_prompts.RequestParserPrompts.MainContext.stable()
         invoke_messages = [
             *state["messages"][:-1],
-            SystemMessage(content=Prompts.SYSTEM_REQUEST_PROMPT),
-            HumanMessage(content=input_prompt)
+            SystemMessage(content=prompt_context.message),
+            HumanMessage(content=prompt_input)
         ]
 
         parsed: ParsedRequest = self.llm.invoke(invoke_messages)
