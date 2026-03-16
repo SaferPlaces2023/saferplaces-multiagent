@@ -173,7 +173,7 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
-tests/
+tests/**/*.ipynb
 .langgraph_api/
 
 # bat files
@@ -188,3 +188,5 @@ docs_pj
 
 # logs
 **/**__state_log__*.json
+saferplaces-multiagent.code-workspace
+ignored-file-keeped-in-local

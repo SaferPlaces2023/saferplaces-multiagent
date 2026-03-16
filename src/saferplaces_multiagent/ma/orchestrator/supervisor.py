@@ -11,173 +11,21 @@ from ...common.states import MABaseGraphState, StateManager
 from ...common import utils
 from ...common.utils import _base_llm
 from ..names import NodeNames
+from ..prompts.supervisor_agent_prompts import OrchestratorPrompts
 from ..specialized.layers_agent import LayersAgent
 from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
 from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
 
 
 # ============================================================================
-# Constants
+# Constants & Data Models
 # ============================================================================
-
-AGENT_REGISTRY = [
-    {
-        "name": NodeNames.MODELS_SUBGRAPH,
-        "description": MODELS_AGENT_DESCRIPTION["description"],
-        "examples": MODELS_AGENT_DESCRIPTION["examples"],
-    },
-    {
-        "name": NodeNames.RETRIEVER_SUBGRAPH,
-        "description": SAFERCAST_AGENT_DESCRIPTION["description"],
-        "examples": SAFERCAST_AGENT_DESCRIPTION["examples"],
-    },
-]
-
-VALID_AGENT_NAMES = {agent["name"] for agent in AGENT_REGISTRY}
 
 # Plan confirmation states
 PLAN_PENDING = "pending"
 PLAN_ACCEPTED = "accepted"
 PLAN_REJECTED = "rejected"
 
-# User response classification labels for plan confirmation
-PLAN_RESPONSE_LABELS = {
-    "accept": (
-        "User accepts the plan and wants to proceed immediately. "
-        "Examples: 'ok', 'yes', 'proceed', 'looks good', 'go ahead', 'do it', 'perfect'"
-    ),
-    "modify": (
-        "User wants changes to the plan but still intends to execute something. "
-        "Examples: 'change step 2', 'skip retriever', 'add more detail', 'swap order', "
-        "'do only step 1', 'remove the last step'"
-    ),
-    "clarify": (
-        "User needs more information before deciding (asking questions, not rejecting). "
-        "Examples: 'what does step 1 do?', 'explain retriever', 'why two steps?', "
-        "'what is DPC?', 'how long will this take?'"
-    ),
-    "reject": (
-        "User rejects the plan approach and wants a completely different strategy. "
-        "Examples: 'no that's wrong', 'different approach please', 'not what I meant', "
-        "'try another way', 'that won't work'"
-    ),
-    "abort": (
-        "User wants to cancel the entire operation without alternatives. "
-        "Examples: 'cancel', 'stop', 'nevermind', 'forget it', 'abort', 'no thanks'"
-    )
-}
-
-
-# ============================================================================
-# Prompts
-# ============================================================================
-
-class SupervisorPrompts:
-    """Centralized prompts for orchestration tasks."""
-
-    SYSTEM_PROMPT = (
-        "You are a high-level orchestration agent.\n"
-        "\n"
-        "Your task:\n"
-        "- Analyze the parsed user request.\n"
-        "- Decide if specialized agents are needed to execute the task.\n"
-        "- If agents are needed, break the task into ordered execution steps.\n"
-        "- If the request is a general question or doesn't require actions, return an empty plan.\n"
-        "- Each step (if any) must specify:\n"
-        "  - the agent name\n"
-        "  - the goal of that step\n"
-        "\n"
-        "Rules:\n"
-        "- Only use agents from the provided registry.\n"
-        "- Do NOT invent new agents.\n"
-        "- Do NOT execute tools.\n"
-        "- Do NOT ask the user questions.\n"
-        "- Focus only on execution planning.\n"
-        "- Keep the plan minimal and logically ordered.\n"
-        "- Empty plan is valid for informational queries."
-    )
-
-    @staticmethod
-    def planning_prompt(state: MABaseGraphState) -> str:
-        """Generate initial planning prompt."""
-        parsed_request = state.get("parsed_request", "No parsed request available")
-        additional_context = state.get("plan_additional_context", "No additional context available")
-        agent_registry_str = str(AGENT_REGISTRY)
-
-        return (
-            f"Parsed request:\n{parsed_request}\n"
-            f"\n"
-            f"Additional context:\n{additional_context}\n"
-            f"\n"
-            f"Available agents:\n{agent_registry_str}"
-        )
-
-    @staticmethod
-    def incremental_replanning_prompt(state: MABaseGraphState) -> str:
-        """Generate prompt for incremental modifications (modify label)."""
-        parsed_request = state.get("parsed_request", "No parsed request available")
-        current_plan = state.get("plan", "No plan available")
-        replan_request = state.get("replan_request")
-        user_feedback = replan_request.content if replan_request else "No feedback"
-
-        return (
-            f"User requested modifications to the existing plan.\n"
-            f"\n"
-            f"Original request:\n{parsed_request}\n"
-            f"\n"
-            f"Current plan:\n{current_plan}\n"
-            f"\n"
-            f"User feedback:\n{user_feedback}\n"
-            f"\n"
-            f"Adjust the plan incrementally based on user feedback. "
-            f"Keep what works and is not mentioned, modify only what's explicitly requested. "
-            f"Minimize disruption to the overall approach."
-        )
-
-    @staticmethod
-    def total_replanning_prompt(state: MABaseGraphState) -> str:
-        """Generate prompt for total replanning (reject label)."""
-        parsed_request = state.get("parsed_request", "No parsed request available")
-        previous_plan = state.get("plan", "No plan available")
-        replan_request = state.get("replan_request")
-        user_feedback = replan_request.content if replan_request else "No feedback"
-
-        return (
-            f"User rejected the entire plan approach and wants a different strategy.\n"
-            f"\n"
-            f"Original request:\n{parsed_request}\n"
-            f"\n"
-            f"Previous plan (REJECTED):\n{previous_plan}\n"
-            f"\n"
-            f"User feedback:\n{user_feedback}\n"
-            f"\n"
-            f"Create a completely new plan from scratch. "
-            f"Take a fundamentally different approach based on user requirements. "
-            f"Do not repeat the rejected strategy."
-        )
-
-    @staticmethod
-    def plan_explanation_prompt(state: MABaseGraphState, user_question: str) -> str:
-        """Generate prompt to explain the plan (clarify label)."""
-        plan = state.get("plan", [])
-        parsed_request = state.get("parsed_request", {})
-        
-        return (
-            f"User asked about the execution plan: '{user_question}'\n"
-            f"\n"
-            f"Original request:\n{parsed_request}\n"
-            f"\n"
-            f"Current plan:\n{plan}\n"
-            f"\n"
-            f"Provide a clear, concise explanation that answers the user's specific question. "
-            f"Focus on helping them understand the plan without changing it. "
-            f"Be informative but brief."
-        )
-
-
-# ============================================================================
-# Data Models
-# ============================================================================
 
 class ExecutionPlan(BaseModel):
     """Execution plan with ordered steps for agent orchestration."""
@@ -242,26 +90,23 @@ class SupervisorAgent(MultiAgentNode):
 
     def _generate_plan(self, state: MABaseGraphState) -> MABaseGraphState:
         """Generate execution plan using LLM."""
-        # Choose prompt based on replan_type
-        replan_type = state.get("replan_type")
+        
+        main_prompt = OrchestratorPrompts.MainContext.stable().to(SystemMessage)
         
         if state.get("plan_confirmation") == PLAN_REJECTED:
+            replan_type = state.get("replan_type")
             if replan_type == "modify":
-                # Incremental changes to existing plan
-                human_prompt = SupervisorPrompts.incremental_replanning_prompt(state)
+                planning_prompt = OrchestratorPrompts.Plan.IncrementalReplanning.stable(state).to(HumanMessage)
             elif replan_type == "reject":
-                # Complete replanning with different approach
-                human_prompt = SupervisorPrompts.total_replanning_prompt(state)
+                planning_prompt = OrchestratorPrompts.Plan.TotalReplanning.stable(state).to(HumanMessage)
             else:
-                # Fallback to total replanning
-                human_prompt = SupervisorPrompts.total_replanning_prompt(state)
+                planning_prompt = OrchestratorPrompts.Plan.TotalReplanning.stable(state).to(HumanMessage)
         else:
-            # First time planning
-            human_prompt = SupervisorPrompts.planning_prompt(state)
+            planning_prompt = OrchestratorPrompts.Plan.CreatePlan.stable(state).to(HumanMessage)
 
         messages = [
-            SystemMessage(content=SupervisorPrompts.SYSTEM_PROMPT),
-            HumanMessage(content=human_prompt),
+            main_prompt,
+            planning_prompt
         ]
 
         # Invoke LLM for plan
@@ -271,7 +116,7 @@ class SupervisorAgent(MultiAgentNode):
         validated_steps = [
             step.model_dump()
             for step in response.steps
-            if step.agent in VALID_AGENT_NAMES
+            if step.agent in [agent['name'] for agent in OrchestratorPrompts.AGENT_REGISTRY]
         ]
 
         state["plan"] = validated_steps
@@ -347,18 +192,10 @@ class SupervisorPlannerConfirm(MultiAgentNode):
 
     def _classify_user_response(self, user_response: str) -> str:
         """Classify user intent using zero-shot classification."""
-        import json
         
-        classification_prompt = (
-            "Classify the user's response into ONE of these categories:\n\n"
-            f"{json.dumps(PLAN_RESPONSE_LABELS, indent=2)}\n\n"
-            f"User response: '{user_response}'\n\n"
-            "Return ONLY the label name (accept/modify/clarify/reject/abort) as a single word."
-        )
-
         messages = [
-            SystemMessage(content="You are a precise intent classifier. Return only the label name."),
-            HumanMessage(content=classification_prompt)
+            OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.ClassifierContext.stable().to(SystemMessage),
+            OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.ZeroShotClassifier.stable(user_response).to(SystemMessage)
         ]
 
         try:
@@ -366,7 +203,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
             label = response.content.strip().lower()
             
             # Validate label
-            if label in PLAN_RESPONSE_LABELS:
+            if label in OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.PLAN_RESPONSE_LABELS.keys():
                 return label
             else:
                 print(f"[{self.name}] ⚠ Invalid label '{label}', defaulting to 'reject'")
@@ -468,11 +305,13 @@ class SupervisorPlannerConfirm(MultiAgentNode):
 
     def _generate_plan_explanation(self, state: MABaseGraphState, user_question: str) -> str:
         """Generate explanation of the plan using LLM."""
-        explanation_prompt = SupervisorPrompts.plan_explanation_prompt(state, user_question)
+        # explanation_prompt = SupervisorPrompts.plan_explanation_prompt(state, user_question)
         
         messages = [
-            SystemMessage(content="You are a helpful assistant explaining an execution plan."),
-            HumanMessage(content=explanation_prompt)
+            # SystemMessage(content="You are a helpful assistant explaining an execution plan."),
+            # HumanMessage(content=explanation_prompt)
+            OrchestratorPrompts.Plan.PlanExplanation.ExplainerMainContext.stable().to(SystemMessage),
+            OrchestratorPrompts.Plan.PlanExplanation.RequestExplanation.stable(state, user_question).to(HumanMessage),
         ]
         
         try:
@@ -484,24 +323,10 @@ class SupervisorPlannerConfirm(MultiAgentNode):
 
     def _generate_confirmation_message(self, state: MABaseGraphState, plan: List[Dict]) -> str:
         """Generate a clear, schematic confirmation message using LLM."""
-        # Format plan as a readable list
-        plan_text = self._format_plan_for_display(plan)
-        
-        confirmation_prompt = (
-            f"Generate a clear, concise confirmation message for the user about the following execution plan.\n"
-            f"The message should be:\n"
-            f"- Schematic and organized (use bullet points or numbering)\n"
-            f"- Concise but complete\n"
-            f"- End with a clear question asking if they want to proceed\n"
-            f"\n"
-            f"Plan:\n{plan_text}\n"
-            f"\n"
-            f"Generate the confirmation message (be brief and well-formatted):"
-        )
         
         messages = [
-            SystemMessage(content="You are a helpful assistant that communicates execution plans clearly and concisely."),
-            HumanMessage(content=confirmation_prompt)
+            OrchestratorPrompts.Plan.PlanConfirmation.RequestMainContext.stable().to(SystemMessage),
+            OrchestratorPrompts.Plan.PlanConfirmation.RequestGenerator.stable(state).to(HumanMessage),
         ]
         
         try:
@@ -509,18 +334,8 @@ class SupervisorPlannerConfirm(MultiAgentNode):
             return response.content.strip()
         except Exception as e:
             print(f"[{self.name}] ⚠ Message generation error: {e}")
-            # Fallback to formatted plan
+            plan_text = OrchestratorPrompts.Plan.PlanConfirmation.RequestGenerator._format_plan_for_display(plan)
             return f"Do you want to proceed with the following plan?\n{plan_text}"
-
-    @staticmethod
-    def _format_plan_for_display(plan: List[Dict]) -> str:
-        """Format plan steps into a readable string."""
-        formatted_steps = []
-        for i, step in enumerate(plan, 1):
-            agent = step.get("agent", "Unknown")
-            goal = step.get("goal", "No description")
-            formatted_steps.append(f"{i}. [{agent}] {goal}")
-        return "\n".join(formatted_steps)
 
     @staticmethod
     def _auto_confirm(state: MABaseGraphState) -> MABaseGraphState:

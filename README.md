@@ -45,3 +45,11 @@
 ## Disegno geometrie
 - disegno bbox + "usala per fare digital twin"
 - disegno di feature per usarle con l'agente ("crop del raster su questo poligono")
+
+## Start
+
+To start the server locally, you can simply run this command in your terminal from the project's root folder (d:/git/sp-workspace/saferplaces-multiagent):
+
+```bash
+flask run
+```
