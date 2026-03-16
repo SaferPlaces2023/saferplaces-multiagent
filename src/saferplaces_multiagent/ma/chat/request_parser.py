@@ -47,9 +47,6 @@ class RequestParser(MultiAgentNode):
         # Initialize new cycle: clear previous request state
         StateManager.initialize_new_cycle(state)
 
-        # if state.get("awaiting_user"):
-        #     state['awaiting_user'] = False
-        #     return state
         if len(state["messages"]) == 0:
             return state
 

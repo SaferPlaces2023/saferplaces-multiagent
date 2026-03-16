@@ -204,6 +204,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
             
             # Validate label
             if label in OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.PLAN_RESPONSE_LABELS.keys():
+            if label in OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.PLAN_RESPONSE_LABELS.keys():
                 return label
             else:
                 print(f"[{self.name}] ⚠ Invalid label '{label}', defaulting to 'reject'")

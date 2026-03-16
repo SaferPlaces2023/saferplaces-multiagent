@@ -12,6 +12,7 @@ from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, Tool
 from langchain_core.load import load as lc_load
 
 # from ..ma_graph import graph
+from .. import multiagent_graph
 from ..multiagent_graph import graph
 from ..common import s3_utils, utils
 from ..common import states as GraphStates

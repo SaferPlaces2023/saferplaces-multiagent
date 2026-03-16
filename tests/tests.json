@@ -11,14 +11,42 @@
     ]
   },
   "T002": {
-    "title": "Geospatial",
-    "description": "Tests geospatial / flood-related messages that should trigger the supervisor plan and route to a specialized agent.",
+    "title": "Geospatial — Supervisor plan + confirmation",
+    "description": "Tests geospatial/flood messages that trigger the supervisor plan and plan-confirmation interrupt (accept / reject).",
     "command": "python -m tests.run T002",
     "TEST_MESSAGES": [
       ["Show me available layers", "yes"],
       ["Show me available layers", "no"],
       ["Create a digital twin for Rome", "yes"],
       ["Run a flood simulation for this area", "yes"]
+    ]
+  },
+  "T003": {
+    "title": "Retriever subgraph — data retrieval",
+    "description": "Tests messages that should route through the retriever subgraph (DataRetrieverAgent → InvocationConfirm → Executor). Covers DPC and Meteoblue tool selection.",
+    "command": "python -m tests.run T003",
+    "TEST_MESSAGES": [
+      ["Retrieve the latest DPC rainfall radar for northern Italy", "yes"],
+      ["Get the Meteoblue precipitation forecast for Rome for the next 24 hours", "yes"],
+      ["Download temperature forecast for Milan bbox 2025-06-01 to 2025-06-02", "yes"]
+    ]
+  },
+  "T004": {
+    "title": "Models subgraph — flood simulation",
+    "description": "Tests messages that should route through the models subgraph (ModelsAgent → InvocationConfirm → Executor). Covers SaferRain flood simulation.",
+    "command": "python -m tests.run T004",
+    "TEST_MESSAGES": [
+      ["Run a SaferRain flood simulation for Rome with 50mm/h rainfall", "yes"],
+      ["Simulate flood propagation for a heavy-rain scenario on the Po valley", "yes"]
+    ]
+  },
+  "T005": {
+    "title": "Supervisor — plan rejection and replan",
+    "description": "Tests the plan rejection flow: user rejects the proposed plan and the supervisor replans based on feedback.",
+    "command": "python -m tests.run T005",
+    "TEST_MESSAGES": [
+      ["Run a flood simulation and retrieve rainfall data for Milan", "no, only do the flood simulation without retrieving data"],
+      ["Show me available raster layers and run a flood model", "no, just list the layers"]
     ]
   }
 }

@@ -55,9 +55,10 @@ def silence():
 with silence():
     from saferplaces_multiagent.agent_interface import GraphInterface, __GRAPH_REGISTRY__
     from saferplaces_multiagent.ma.chat.request_parser import Prompts as _RPPrompts
-    # from saferplaces_multiagent.ma.orchestrator.supervisor import SupervisorPrompts as _SPPrompts
     from saferplaces_multiagent.ma.prompts.supervisor_agent_prompts import OrchestratorPrompts as _SPPrompts
     from saferplaces_multiagent.ma.chat.final_responder import Prompts as _FRPrompts
+    from saferplaces_multiagent.ma.specialized.safercast_agent import RetrieverPrompts as _RetrieverPrompts
+    from saferplaces_multiagent.ma.specialized.models_agent import ModelsPrompts as _ModelsPrompts
 
 
 # ---------------------------------------------------------------------------
@@ -65,13 +66,19 @@ with silence():
 # Keyed by the prefix that appears in the agent's print() output, e.g. [request_parser]
 # ---------------------------------------------------------------------------
 AGENT_REGISTRY = {
+    # ── Chat ────────────────────────────────────────────────────────────────
     "request_parser": (
         "RequestParser",
         _RPPrompts.SYSTEM_REQUEST_PROMPT,
     ),
+    "final_responder": (
+        "FinalResponder",
+        _FRPrompts.FINAL_RESPONSE_PROMPT,
+    ),
+    # ── Orchestrator (supervisor subgraph) ──────────────────────────────────
     "supervisor_agent": (
         "SupervisorAgent",
-        _SPPrompts.MainContext.stable().message
+        _SPPrompts.MainContext.stable().message,
     ),
     "supervisor_planner_confirm": (
         "SupervisorPlannerConfirm",
@@ -79,11 +86,38 @@ AGENT_REGISTRY = {
     ),
     "supervisor_router": (
         "SupervisorRouter",
-        "(no LLM — pure routing logic based on plan state)",
+        "(no LLM — pure routing logic based on plan state and supervisor_next_node)",
     ),
-    "final_responder": (
-        "FinalResponder",
-        _FRPrompts.FINAL_RESPONSE_PROMPT,
+    # ── Retriever subgraph ──────────────────────────────────────────────────
+    "retriever_agent": (
+        "DataRetrieverAgent",
+        _RetrieverPrompts.TOOL_SELECTION_SYSTEM,
+    ),
+    "retriever_invocation_confirm": (
+        "DataRetrieverInvocationConfirm",
+        "(no LLM — validates args via inference rules; interrupts user on validation error or when confirmation is enabled)",
+    ),
+    "retriever_executor": (
+        "DataRetrieverExecutor",
+        "(no LLM — executes validated tool calls, adds result layer to registry)",
+    ),
+    # ── Models subgraph ─────────────────────────────────────────────────────
+    "models_agent": (
+        "ModelsAgent",
+        _ModelsPrompts.TOOL_SELECTION_SYSTEM,
+    ),
+    "models_invocation_confirm": (
+        "ModelsInvocationConfirm",
+        "(no LLM — validates args via inference rules; interrupts user on validation error or when confirmation is enabled)",
+    ),
+    "models_executor": (
+        "ModelsExecutor",
+        "(no LLM — executes validated model tool calls, adds result layer to registry)",
+    ),
+    # ── Layers agent (called inline by executors) ────────────────────────────
+    "layers_agent": (
+        "LayersAgent",
+        "(no LLM for routing — uses LLM only inside choose_layer / build_layer_from_prompt tools; manages geospatial layer registry)",
     ),
 }
 
