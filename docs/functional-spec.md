@@ -61,6 +61,8 @@
 
 **Componente**: `specialized/safercast_agent.py` → subgraph `RETRIEVER_SUBGRAPH`
 
+**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-005)
+
 **Nodi**:
 
 | Nodo | Ruolo |
@@ -84,6 +86,8 @@
 **Descrizione**: Esecuzione di simulazioni ambientali (alluvioni, ecc.).
 
 **Componente**: `specialized/models_agent.py` → subgraph `MODELS_SUBGRAPH`
+
+**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-006)
 
 **Nodi**:
 
