@@ -14,6 +14,7 @@ from .layers_agent import LayersAgent
 from .confirmation_utils import ToolInvocationConfirmationHandler
 from .validation_utils import ToolValidationResponseHandler
 from ..names import NodeNames
+from ..prompts.safercast_agent_prompts import SaferCastPrompts
 
 
 # ============================================================================
@@ -51,62 +52,9 @@ STATE_TOOL_RESULTS = "tool_results"
 
 
 # ============================================================================
-# Prompts
-# ============================================================================
-
-class RetrieverPrompts:
-    """Prompts for specialized data retrieval agent."""
-
-    TOOL_SELECTION_SYSTEM = (
-        "You are a specialized agent for data retrieval.\n"
-        "Choose the best tool to accomplish the goal.\n"
-        "Only call tools that are provided.\n"
-        "If needed info is missing, still propose the most likely tool call with best-effort args."
-    )
-
-    @staticmethod
-    def initial_request(state: MABaseGraphState) -> str:
-        """Generate initial tool invocation prompt."""
-        goal = state["plan"][state["current_step"]].get("goal", "N/A")
-        parsed_request = state.get("parsed_request", "")
-        relevant_layers = (
-            state.get("additional_context", {})
-            .get("relevant_layers", {})
-            .get("layers", [])
-        )
-
-        return (
-            f"Goal: {goal}\n"
-            f"Parsed request: {parsed_request}\n"
-            "\n"
-            "Relevant layers (use these as inputs if needed):\n"
-            f"{json.dumps(relevant_layers, ensure_ascii=False)}"
-        )
-
-    @staticmethod
-    def reinvocation_request(state: MABaseGraphState) -> str:
-        """Generate re-invocation prompt after user feedback."""
-        goal = state["plan"][state["current_step"]].get("goal", "N/A")
-        invocation = state[STATE_RETRIEVER_INVOCATION]
-        tool_calls_str = "\n".join(
-            f"  - {tc['name']}: {tc['args']}"
-            for tc in invocation.tool_calls
-        )
-        user_response = state[STATE_RETRIEVER_REINVOCATION_REQUEST].content
-
-        return (
-            f"Goal: {goal}\n"
-            f"Some tools need to be reviewed or corrected.\n"
-            f"Current invocation:\n{tool_calls_str}\n"
-            f"User feedback: {user_response}\n"
-            f"Produce a new sequence of tool calls based on the user's feedback. "
-            f"You can modify arguments, reorder, add, or delete tool calls."
-        )
-
-
-# ============================================================================
 # Tool Registry
 # ============================================================================
+
 
 class ToolRegistry:
     """Singleton registry for managing retriever tools."""
@@ -178,13 +126,16 @@ class DataRetrieverAgent(MultiAgentNode):
 
     def _build_invocation_messages(self, state: MABaseGraphState) -> List[Any]:
         """Build messages for LLM invocation."""
-        system_msg = SystemMessage(content=RetrieverPrompts.TOOL_SELECTION_SYSTEM)
+        system_prompt = SaferCastPrompts.MainContext.stable()
+        system_msg = system_prompt.to(SystemMessage)
 
         # Choose prompt based on state
         if state.get(STATE_RETRIEVER_CONFIRMATION) == INVOCATION_REJECTED:
-            human_msg = HumanMessage(content=RetrieverPrompts.reinvocation_request(state))
+            human_prompt = SaferCastPrompts.ToolSelection.ReinvocationRequest.stable(state)
         else:
-            human_msg = HumanMessage(content=RetrieverPrompts.initial_request(state))
+            human_prompt = SaferCastPrompts.ToolSelection.InitialRequest.stable(state)
+
+        human_msg = human_prompt.to(HumanMessage)
 
         return [system_msg, human_msg]
 

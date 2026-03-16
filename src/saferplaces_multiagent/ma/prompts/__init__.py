@@ -28,5 +28,7 @@ class Prompt:
 from . import (
     supervisor_agent_prompts,
     request_parser_prompts,
-    final_responder_prompts
+    final_responder_prompts,
+    safercast_agent_prompts,
+    models_agent_prompts
 )

@@ -15,6 +15,7 @@ from .tools.digital_twin_tool import DigitalTwinTool
 from .layers_agent import LayersAgent
 from .confirmation_utils import ToolInvocationConfirmationHandler
 from .validation_utils import ToolValidationResponseHandler
+from ..prompts.models_agent_prompts import ModelsPrompts
 
 
 # ============================================================================
@@ -53,66 +54,9 @@ STATE_TOOL_RESULTS = "tool_results"
 
 
 # ============================================================================
-# Prompts
-# ============================================================================
-
-class ModelsPrompts:
-    """Prompts for specialized models/simulations agent."""
-
-    TOOL_SELECTION_SYSTEM = (
-        "You are a specialized simulations agent.\n"
-        "Choose the best model/tool to accomplish the goal.\n"
-        "Only call provided tools and propose reasonable args if missing.\n"
-        "If a tool requires a layer input, select it from Relevant layers when available.\n"
-        "If no suitable layer exists, do not invent one; state what layer is missing."
-    )
-
-    @staticmethod
-    def initial_request(state: MABaseGraphState) -> str:
-        """Generate initial tool invocation prompt."""
-        goal = state["plan"][state["current_step"]].get("goal", "N/A")
-        parsed_request = state.get("parsed_request", "")
-        relevant_layers = (
-            state.get("additional_context", {})
-            .get("relevant_layers", {})
-            .get("layers", [])
-        )
-
-        return (
-            f"Goal: {goal}\n"
-            f"Parsed: {parsed_request}\n"
-            "\n"
-            "Relevant layers (use these as inputs if needed):\n"
-            f"{json.dumps(relevant_layers, ensure_ascii=False)}"
-        )
-
-    @staticmethod
-    def reinvocation_request(state: MABaseGraphState) -> str:
-        """Generate re-invocation prompt after user feedback."""
-        goal = state["plan"][state["current_step"]].get("goal", "N/A")
-        invocation = state[STATE_MODELS_INVOCATION]
-        tool_calls_str = "\n".join(
-            f"  - {tc['name']}: {tc['args']}"
-            for tc in invocation.tool_calls
-        )
-        user_response = state[STATE_MODELS_REINVOCATION_REQUEST].content
-
-        return (
-            f"Goal: {goal}\n"
-            "\n"
-            "Some tools need to be reviewed or corrected.\n"
-            "Here is the current invocation:\n"
-            f"{tool_calls_str}\n"
-            "\n"
-            f"User feedback: {user_response}\n"
-            "Produce a new sequence of tool calls based on the user's feedback. "
-            "You can modify arguments, order, add, or delete tool calls."
-        )
-
-
-# ============================================================================
 # Tool Registry
 # ============================================================================
+
 
 class ToolRegistry:
     """Singleton registry for managing models tools."""
@@ -184,13 +128,16 @@ class ModelsAgent(MultiAgentNode):
 
     def _build_invocation_messages(self, state: MABaseGraphState) -> List[Any]:
         """Build messages for LLM invocation."""
-        system_msg = SystemMessage(content=ModelsPrompts.TOOL_SELECTION_SYSTEM)
+        system_prompt = ModelsPrompts.MainContext.stable()
+        system_msg = system_prompt.to(SystemMessage)
 
         # Choose prompt based on state
         if state.get(STATE_MODELS_CONFIRMATION) == INVOCATION_REJECTED:
-            human_msg = HumanMessage(content=ModelsPrompts.reinvocation_request(state))
+            human_prompt = ModelsPrompts.ToolSelection.ReinvocationRequest.stable(state)
         else:
-            human_msg = HumanMessage(content=ModelsPrompts.initial_request(state))
+            human_prompt = ModelsPrompts.ToolSelection.InitialRequest.stable(state)
+
+        human_msg = human_prompt.to(HumanMessage)
 
         return [system_msg, human_msg]
 

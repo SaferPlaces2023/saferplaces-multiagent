@@ -17,7 +17,7 @@
 
 ## Active Plans
 
-> **Prossimo numero disponibile: PLN-005** — aggiornare questa riga ogni volta che si crea o archivia un piano.
+> **Prossimo numero disponibile: PLN-007** — aggiornare questa riga ogni volta che si crea o archivia un piano.
 
 | Piano | Titolo | File target |
 |---|---|---|

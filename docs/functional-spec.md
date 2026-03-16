@@ -194,13 +194,12 @@ with patch.object(OrchestratorPrompts.MainContext, "stable", _my_override):
 
 **Descrizione**: Metodologia standardizzata per dichiarare e organizzare i testi dei prompt LLM a livello di agente.
 
-**Status**: 🚧 **In Progress**
+**Status**: ✅ **Complete**
 - ✅ **Supervisor Agent** — Implementato via `supervisor_agent_prompts.py` (PLN-003)
 - ✅ **Request Parser Agent** — Implementato via `request_parser_prompts.py` (PLN-004)
 - ✅ **Final Responder Agent** — Implementato via `final_responder_prompts.py` (PLN-004)
-- ⏳ **Data Retriever Agent** — Pianificato in PLN-005
-- ⏳ **SaferCast Agent** — Pianificato in PLN-006
-- ⏳ **Models Agent** — Pianificato in PLN-007
+- ✅ **SaferCast Agent** — Implementato via `safercast_agent_prompts.py` (PLN-005)
+- ✅ **Models Agent** — Implementato via `models_agent_prompts.py` (PLN-006)
 
 **Componente**: `ma/prompts/<agent>_prompts.py` — modulo dedicato per ogni agente specializzato
 
