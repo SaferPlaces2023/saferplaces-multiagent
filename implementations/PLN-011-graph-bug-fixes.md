@@ -22,13 +22,13 @@ post PLN-008/PLN-009. I fix coprono quattro aree:
 
 | File | Difetti | Stato |
 |------|---------|-------|
-| `ma/specialized/safercast_agent.py` | D11, D14, D16 | todo |
-| `ma/specialized/models_agent.py` | D11, D14, D16 | todo |
-| `ma/orchestrator/supervisor.py` | D15 | todo |
-| `ma/prompts/safercast_agent_prompts.py` | D12 | todo |
-| `ma/prompts/models_agent_prompts.py` | D12 | todo |
-| `ma/prompts/supervisor_agent_prompts.py` | D13 | todo |
-| `common/states.py` | D6, D15 (nuovo campo `replan_iteration_count`) | todo |
+| `ma/specialized/safercast_agent.py` | D11, D14, D16 | ✅ done |
+| `ma/specialized/models_agent.py` | D11, D14, D16 | ✅ done |
+| `ma/orchestrator/supervisor.py` | D15 | ✅ done |
+| `ma/prompts/safercast_agent_prompts.py` | D12 | ✅ done |
+| `ma/prompts/models_agent_prompts.py` | D12 | ✅ done |
+| `ma/prompts/supervisor_agent_prompts.py` | D13 | ✅ done |
+| `common/states.py` | D6, D15 (nuovo campo `replan_iteration_count`) | ✅ done |
 
 ---
 

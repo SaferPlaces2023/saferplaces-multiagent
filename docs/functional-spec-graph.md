@@ -4,7 +4,7 @@
 > Descrive topologia, ciclo di vita dello stato, percorsi di esecuzione e difetti noti.
 >
 > **Prefisso ID:** `G###` — riservato a questa specifica.
-> **Ultimo aggiornamento:** Marzo 2026 — revisione completa post PLN-008/PLN-009.
+> **Ultimo aggiornamento:** Marzo 2026 — revisione completa post PLN-008/PLN-009/PLN-011.
 >
 > **File sorgente chiave:**
 > - [`multiagent_graph.py`](../src/saferplaces_multiagent/multiagent_graph.py)
@@ -114,7 +114,7 @@ Struttura identica al Retriever Subgraph con nodi corrispondenti:
 4. Costruisce `invoke_messages = [*state["messages"][:-1], SystemMessage(context_prompt), HumanMessage(latest_msg)]`.  
    **Importante:** include l'intera cronologia precedente, permettendo al parser di inferire il contesto da turni precedenti.
 5. Invoca LLM con `with_structured_output(ParsedRequest)` → `{intent, entities, raw_text}`.
-6. Imposta `state["parsed_request"]` e `state["awaiting_user"] = False`.
+6. Imposta `state["parsed_request"]`.
 
 **Dipendenza critica:** La qualità dell'intento estratto determina la qualità dell'intero piano a valle. Per richieste di follow-up ("fai lo stesso per Roma"), la corretta estrazione dipende dalla prompt quality e da quanto il parser LLM sfrutti la cronologia inclusa.
 
@@ -125,7 +125,6 @@ Struttura identica al Retriever Subgraph con nodi corrispondenti:
 | `parsed_request` | `{intent, entities, raw_text}` |
 | `plan` | `None` |
 | `tool_results` | `{}` |
-| `awaiting_user` | `False` |
 | `plan_aborted` | `False` |
 | `additional_context.relevant_layers.is_dirty` | `True` |
 
@@ -143,7 +142,6 @@ Struttura identica al Retriever Subgraph con nodi corrispondenti:
 
 1. `_should_skip_planning(state)` → `True` in questi casi (ritorna senza modifiche):
    - `plan_aborted == True`
-   - `awaiting_user == True`
    - `plan is not None AND plan_confirmation == "accepted" AND current_step is not None` (piano in esecuzione)
 2. Se `plan_confirmation == "rejected"`:
    - `replan_type == "modify"` → `IncrementalReplanning.stable(state)` (modifica incrementale)
@@ -155,11 +153,12 @@ Struttura identica al Retriever Subgraph con nodi corrispondenti:
 
 **Contesto disponibile al planning:**
 
-`CreatePlan.stable(state)` legge:
+`CreatePlan.stable(state)` e `IncrementalReplanning.stable(state)` leggono:
 - `state["parsed_request"]` — intento ed entità estratte dal parser
 - `state["additional_context"]["relevant_layers"]["layers"]` — layer disponibili (frutto dell'ultimo refresh del SUPERVISOR_ROUTER)
+- **Ultimi N messaggi** (`state["messages"][-5:]`, solo `HumanMessage`/`AIMessage` senza tool_calls) — contesto conversazionale per follow-up e disambiguazione (aggiunto con PLN-011)
 
-**Limitazione:** Il supervisor NON vede la cronologia dei messaggi (`state["messages"]`). La sua visione della richiesta è mediata esclusivamente dalla struttura `parsed_request`. Per richieste complesse con contesto distribuito su più turni, la qualità del piano dipende interamente da quanto il parser LLM riesca a sintetizzare quel contesto in `intent` e `entities`.
+**Limitazione:** Il supervisor vede la cronologia solo tramite gli ultimi N messaggi inclusi nel prompt (N=5 default). Per richieste con contesto distribuito su molti turni, i messaggi più vecchi potrebbero non essere inclusi.
 
 **Ulteriore limitazione temporale:** Il contesto layer è frutto del refresh del router nel ciclo PRECEDENTE. Al primo SUPERVISOR_AGENT (senza router precedente che abbia già fatto il refresh), `additional_context.relevant_layers.layers` potrebbe essere vuoto. Il primo piano viene quindi generato senza contesto layer aggiornato se `layer_registry` era vuoto all'avvio.
 
@@ -259,8 +258,6 @@ Il loop è iterativo (non ricorsivo), sicuro con LangGraph checkpoint.
    - `current_step < len(plan)` → legge `plan[current_step]["agent"]`, chiama `StateManager.initialize_specialized_agent_cycle(state, agent_type)`, ritorna il subgraph
    - `current_step >= len(plan)` → `FINAL_RESPONDER`
 
-**Nota:** `awaiting_user == True → END` è commentato nel codice — vedi G007-D6.
-
 ---
 
 ### RETRIEVER_AGENT / MODELS_AGENT
@@ -282,13 +279,13 @@ Il loop è iterativo (non ricorsivo), sicuro con LangGraph checkpoint.
    - `{agent}_invocation_confirmation == "rejected"` → `ReinvocationRequest.stable(state)` (include feedback utente + tool call precedenti)
    - altrimenti → `InitialRequest.stable(state)` (include goal + layer rilevanti)
 2. Costruisce `messages = [SystemMessage(MainContext), HumanMessage(prompt)]`.  
-   **IMPORTANTE:** la cronologia di conversazione `state["messages"]` NON è inclusa (vedi G007-D12).
+   Il prompt `InitialRequest`/`ReinvocationRequest` include gli ultimi N messaggi conversazionali come contesto aggiuntivo (PLN-011, fix D12).
 3. Invoca LLM con tool binding.
 4. Se **nessun tool call** generato (`_handle_no_tool_calls`):
-   - `current_step += 1` (avanza il piano)
    - `{agent}_invocation = invocation` (testo esplicativo del modello)
    - `{agent}_invocation_confirmation = None`
-   - `state["messages"] = invocation` ← **BUG: singolo oggetto, non lista** (vedi G007-D11)
+   - `state["messages"] = [invocation]` (lista, correzione D11)
+   - **non** incrementa `current_step` — l'Executor lo farà (correzione D14)
 5. Se tool call generati (`_prepare_invocation`):
    - `{agent}_invocation = AIMessage(tool_calls=[...])`
    - `{agent}_current_step = 0`
@@ -297,11 +294,10 @@ Il loop è iterativo (non ricorsivo), sicuro con LangGraph checkpoint.
 **Contesto disponibile all'agente:**
 
 L'agente conosce:
-- Il `goal` del passo corrente (`plan[current_step]["goal"]`) — unico canale di informazione dal supervisor all'agente
-- Il `parsed_request` (intent strutturato) — per contexto generale
+- Il `goal` del passo corrente (`plan[current_step]["goal"]`) — unico canale strutturato dal supervisor
+- Il `parsed_request` (intent strutturato) — per contesto generale
 - I `relevant_layers` (layer filtrati) — per selezionare input esistenti
-
-L'agente NON conosce: la cronologia completa della conversazione.
+- Gli ultimi N messaggi conversazionali (N=5, solo `HumanMessage`/`AIMessage` senza tool_calls) — inclusi nel prompt (PLN-011, fix D12)
 
 ---
 
@@ -360,9 +356,10 @@ invocation has no tool_calls?
 
 Per ogni tool_call in invocation.tool_calls[retriever_current_step:]:
   1. tool._execute(**args)  ← args già completi da Confirm
+     (wrappato in try/except — errori catturati in tool_results con status "error", PLN-011 fix D16)
   2. _format_tool_response() → ToolMessage tool-specifico
   3. _add_layer_to_registry() → LayersAgent aggiunge layer a layer_registry
-  4. _record_tool_result() → tool_results[agent_key] aggiornato
+  4. _record_tool_result() → tool_results[step_key] aggiornato
   5. StateManager.mark_agent_step_complete(state, agent_type) → retriever_current_step++
 
 state["current_step"] += 1   ← avanza il piano globale
@@ -406,7 +403,7 @@ StateManager.cleanup_on_final_response(state)
 |---|---|---|
 | `REQUEST_PARSER` | `parsed_request`, `plan=None`, `tool_results={}`, `plan_aborted=False`, `additional_context.relevant_layers.is_dirty=True`, tutti i campi agente | `StateManager.initialize_new_cycle()` |
 | `SUPERVISOR_AGENT` | `plan`, `current_step=0`, `plan_confirmation="pending"`, `replan_request=None`, `replan_type=None` | Salta se piano già accepted (skip planning) |
-| `SUPERVISOR_PLANNER_CONFIRM` | `plan_confirmation`, `replan_request`, `replan_type`, `clarify_iteration_count`, `plan_aborted` (solo abort) | Solo se enabled=True; auto-confirm se enabled=False |
+| `SUPERVISOR_PLANNER_CONFIRM` | `plan_confirmation`, `replan_request`, `replan_type`, `clarify_iteration_count`, `replan_iteration_count`, `plan_aborted` (solo abort) | Solo se enabled=True; auto-confirm se enabled=False |
 | `SUPERVISOR_ROUTER` | `supervisor_next_node`, `additional_context.relevant_layers`, `layers_*`, `{agent}_invocation`, `{agent}_current_step`, `{agent}_invocation_confirmation`, `{agent}_reinvocation_request` | Via `StateManager.initialize_specialized_agent_cycle` |
 | `{AGENT}_AGENT` | `{agent}_invocation`, `{agent}_invocation_confirmation`, `{agent}_reinvocation_request`, `{agent}_current_step`, `current_step`, `messages` | `current_step` avanza solo se no tool calls |
 | `{AGENT}_INVOCATION_CONFIRM` | `{agent}_invocation.tool_calls[*].args` (mutazione in-place), `{agent}_invocation_confirmation`, `{agent}_reinvocation_request` | Inferenza e validazione |
@@ -575,7 +572,7 @@ SUPERVISOR_AGENT:
   → plan_confirmation = "pending"
 ```
 
-**Rischio:** Non c'è limite al numero di cicli modify/reject. Un utente indeciso (o un LLM che genera piani sistematicamente rifiutati) può ciclare indefinitamente. A differenza del clarify loop, non esiste `replan_iteration_count`.
+**Rischio (MITIGATO — PLN-011):** `replan_iteration_count` è ora nello stato; viene incrementato in `_handle_modify`/`_handle_reject`. Se supera il limite (5), `_generate_plan()` abbandona il ciclo: imposta `plan=[]`, `plan_aborted=True` e instrada verso `FINAL_RESPONDER`.
 
 ---
 
@@ -663,13 +660,13 @@ RETRIEVER_EXECUTOR → esegue
 
 ```
 MODELS_AGENT:
-  InitialRequest(goal="Run flood simulation", relevant_layers=[])
+  InitialRequest(goal="Run flood simulation", relevant_layers=[], context_window=last 5 msgs)
   LLM non propone tool calls (es: layer DEM mancante)
   _handle_no_tool_calls(invocation):
-    current_step += 1  ← avanza piano senza eseguire nulla
     models_invocation = AIMessage(content="Manca il layer DEM per eseguire la simulazione")
     models_invocation_confirmation = None
-    state["messages"] = invocation  ← BUG D11: singolo oggetto non lista
+    state["messages"] = [invocation]  ← lista corretta (fix D11)
+    (current_step NON viene toccato qui — fix D14)
 
 MODELS_INVOCATION_CONFIRM:
   has_no_tool_calls(invocation) → True → ritorna state invariato
@@ -679,17 +676,15 @@ Arco subgraph: None != "rejected" → MODELS_EXECUTOR
 
 MODELS_EXECUTOR:
   has_no_tool_calls(invocation) → True
-  current_step += 1   ← duplica l'incremento! (vedi G007-D15)
+  current_step += 1   ← unico incremento (fix D14)
   messages = [invocation]
   ritorna
 
 ─── SUPERVISOR_SUBGRAPH re-enter ───
-SUPERVISOR_ROUTER: current_step avanzato (forse oltre fine piano) → FINAL_RESPONDER
+SUPERVISOR_ROUTER: current_step avanzato di 1 → FINAL_RESPONDER (o prossimo step)
 
 FINAL_RESPONDER: spiega all'utente che mancano input necessari
 ```
-
-**Problema:** `current_step` viene incrementato DUE volte: una nell'Agent e una nell'Executor (che ha la sua guard `if has_no_tool_calls`). Il piano avanza di 2 per uno step saltato — si rischia di saltare il passo successivo (vedi G007-D15).
 
 ---
 
@@ -846,14 +841,13 @@ invoke_messages = [
 
 ---
 
-### D6 — `awaiting_user = True` → dead code `[OPEN]` ⚪
+### D6 — `awaiting_user = True` → dead code `[RESOLVED — PLN-011]` ⚪
 
-**Descrizione:** `SupervisorRouter._determine_next_node()` contiene il blocco commentato:
-```python
-# if state.get("awaiting_user"):
-#     return "END"
-```
-Nessun nodo imposta `awaiting_user = True` in modo persistente (REQUEST_PARSER lo imposta a `False`). Il campo è nel TypedDict ma non viene mai usato in modo coerente. Dead code potenzialmente confusionario.
+~~`SupervisorRouter._determine_next_node()` contiene il blocco commentato~~  
+~~`if state.get("awaiting_user"): return "END"`~~  
+~~Nessun nodo impostava `awaiting_user = True` in modo persistente. Dead code confusionario.~~
+
+**Fix applicato (PLN-011):** Campo `awaiting_user` rimosso da `MABaseGraphState`, da `StateManager.initialize_new_cycle()`, da `_should_skip_planning()`, da `_handle_modify()`, `_handle_reject()` e da `request_parser.py`. Blocco commentato in `_determine_next_node()` rimosso.
 
 ---
 
@@ -865,11 +859,11 @@ Nessun nodo imposta `awaiting_user = True` in modo persistente (REQUEST_PARSER l
 
 ---
 
-### D8 — `current_step += 1` senza guard su None `[PARTIAL]`
+### D8 — `current_step += 1` senza guard su None `[RESOLVED — PLN-011]`
 
-**Descrizione:** In `DataRetrieverAgent._handle_no_tool_calls()` e `ModelsAgent._handle_no_tool_calls()`, se `current_step` è `None`, `+= 1` genera `TypeError`.
+~~In `DataRetrieverAgent._handle_no_tool_calls()` e `ModelsAgent._handle_no_tool_calls()`, se `current_step` è `None`, `+= 1` genera `TypeError`.~~
 
-**Rimedio parziale presente:** Guard `if state.get("current_step") is None: state["current_step"] = 0` aggiunto. Il problema residuo è che `current_step` potrebbe essere `None` se `initialize_specialized_agent_cycle` non è stato chiamato (scenario teorico post-D3, ora risolto). Il guard è comunque corretto.
+**Fix applicato (PLN-011):** L'incremento di `current_step` è stato rimosso da `_handle_no_tool_calls()` (fix D14). La guard è ora irrilevante. `current_step` viene incrementato solo nell'Executor, dove `initialize_specialized_agent_cycle()` garantisce il valore non-`None` (post-D3 risolto).
 
 ---
 
@@ -894,89 +888,51 @@ if not plan:
 
 ---
 
-### D11 — `_handle_no_tool_calls` assegna messaggio singolo invece di lista `[OPEN]` 🟡
+### D11 — `_handle_no_tool_calls` assegna messaggio singolo invece di lista `[RESOLVED — PLN-011]` 🟡
 
-**File:** `safercast_agent.py:_handle_no_tool_calls()`, `models_agent.py:_handle_no_tool_calls()`
+~~`state["messages"] = invocation` — singolo AIMessage, non lista.~~
 
-**Descrizione:** Quando l'agente non genera tool call:
-```python
-state["messages"] = invocation   # ← singolo AIMessage, non lista
-```
-La chiave `messages` usa il reducer `add_messages` che attende una lista (o dict). Passare un singolo oggetto può essere coercito da LangChain o causare comportamento inatteso a seconda della versione.
-
-**Fix suggerito:** `state["messages"] = [invocation]` (coerente con il pattern usato nell'executor, che fa `state["messages"] = [invocation]` correttamente).
+**Fix applicato (PLN-011):** `state["messages"] = [invocation]` in entrambi gli agenti.
 
 ---
 
-### D12 — Agenti specializzati ignorano la cronologia della conversazione `[OPEN]` 🟡
+### D12 — Agenti specializzati ignorano la cronologia della conversazione `[RESOLVED — PLN-011]` 🟡
 
-**File:** `safercast_agent.py:_build_invocation_messages()`, `models_agent.py:_build_invocation_messages()`
+~~`[SystemMessage(MainContext), HumanMessage(InitialRequest)]` senza cronologia.~~
 
-**Descrizione:** I messaggi costruiti per l'invocazione LLM degli agenti specializzati sono:
-```python
-[SystemMessage(MainContext), HumanMessage(InitialRequest)]
-```
-Nessuna inclusione di `state["messages"]`. L'agente non sa cosa l'utente ha detto nei turni precedenti.
-
-**Impatto:** Il canale informativo dal supervisor all'agente è solo la stringa `goal` nel passo del piano. Se la richiesta dell'utente era "usa la stessa area geografica del radar di ieri" e il parser ha estratto un `intent` generico, l'agente non ha modo di risolvere "l'area geografica di ieri".
-
-**Weight:** La qualità dell'`intent` estratto dal parser mitiga parzialmente questo problema, ma non lo risolve nel caso generale.
-
-**Fix suggerito:** Includere `*state["messages"]` tra il system prompt e lo HumanMessage di invocazione, oppure aggiungere un summary dei messaggi rilevanti nel contesto del prompt.
+**Fix applicato (PLN-011):** `InitialRequest.stable(state)` e `ReinvocationRequest.stable(state)` includono ora un blocco `"Conversation context (last messages)"` con gli ultimi N=5 messaggi filtrati (`HumanMessage`/`AIMessage` senza `tool_calls`), via helper `_get_conversation_context(state)` in entrambi i moduli di prompt.
 
 ---
 
-### D13 — Supervisor pianifica senza cronologia conversazione `[OPEN]` 🟡
+### D13 — Supervisor pianifica senza cronologia conversazione `[RESOLVED — PLN-011]` 🟡
 
-**File:** `supervisor.py:_generate_plan()`
+~~`_generate_plan()` costruisce `[SystemMessage(MainContext), HumanMessage(CreatePlan)]` senza cronologia.~~
 
-**Descrizione:** `_generate_plan()` costruisce:
-```python
-[SystemMessage(MainContext), HumanMessage(CreatePlan)]
-```
-Il supervisor non vede `state["messages"]`. Vede solo `parsed_request` (dict strutturato) e `additional_context`. Per richieste di follow-up complesse dove il contesto è distribuito nella cronologia, la qualità del piano dipende interamente da quanto il parser ha sintetizzato quel contesto in `intent` ed `entities`.
-
-**Mitigazione esistente:** L'`intent` del parser è estratto vedendo l'intera cronologia. Se il parser è accurato, `intent` dovrebbe catturare il contesto necessario.
-
-**Fix suggerito:** Includere un sommario della conversazione (ultimi N messaggi) nel `CreatePlan` prompt, oppure includere `state["messages"]` direttamente.
+**Fix applicato (PLN-011):** `CreatePlan.stable(state)` e `IncrementalReplanning.stable(state)` includono ora un blocco `"Conversation context (last messages)"` con gli ultimi N=5 messaggi filtrati, via helper `_get_conversation_context(state)` in `supervisor_agent_prompts.py`.
 
 ---
 
-### D14 — `_handle_no_tool_calls` incrementa `current_step` due volte `[OPEN]` 🟡
+### D14 — `_handle_no_tool_calls` incrementa `current_step` due volte `[RESOLVED — PLN-011]` 🟡
 
-**File:** safercast_agent.py, models_agent.py — `_handle_no_tool_calls()` nell'Agent e guard corrispondente nell'Executor
+~~`current_step` veniva incrementato nell'Agent (`_handle_no_tool_calls`) e poi di nuovo nell'Executor (guard `if has_no_tool_calls`), saltando lo step successivo nel piano.~~
 
-**Descrizione:** Quando l'agente non genera tool call:
-
-1. **Agent** (`_handle_no_tool_calls`): `state["current_step"] += 1`
-2. L'invocation ha `tool_calls = []` — l'arco condizionale del subgraph vede `invocation_confirmation = None != "rejected"` → va a **Executor**
-3. **Executor** (`run()`): `if has_no_tool_calls(invocation): state["current_step"] += 1`
-
-`current_step` viene incrementato **due volte** per uno step che non ha eseguito nulla, saltando lo step successivo nel piano.
-
-**Scenario:** Piano = [step0: retriever, step1: models]. Se il retriever non genera tool call, `current_step` passa da 0 a 2 (invece di 1), e il models step viene saltato.
-
-**Fix suggerito:** Rimuovere l'incremento in `_handle_no_tool_calls()` dell'Agent (lasciarlo solo nell'Executor), oppure rimuovere la guard nell'Executor.
+**Fix applicato (PLN-011):** Rimosso `state["current_step"] += 1` da `_handle_no_tool_calls()` in entrambi gli agenti. L'unico incremento ora avviene nell'Executor (`run()`), garantendo l'avanzamento esatto di 1 per step.
 
 ---
 
-### D15 — Nessun limite al loop replan (modify/reject) `[OPEN]` ⚪
+### D15 — Nessun limite al loop replan (modify/reject) `[RESOLVED — PLN-011]` ⚪
 
-**File:** supervisor.py — loop in `build_supervisor_subgraph()`
+~~Nessun contatore di cicli modify/reject. Possibile loop indefinito.~~
 
-**Descrizione:** A differenza del clarify loop (limitato a `max_clarify_iterations=3`), i cicli `modify` e `reject` non hanno un contatore. Un utente che continua a modificare il piano, o un LLM che genera sistematicamente piani rifiutati, può ciclare indefinitamente nel subgraph.
-
-**Fix suggerito:** Aggiungere `replan_iteration_count: Optional[int]` allo stato, incrementarlo in `_handle_modify` e `_handle_reject`, e includere un limite (es. 5) in `_generate_plan()` con fallback a un comportamento di uscita.
+**Fix applicato (PLN-011):** Aggiunto `replan_iteration_count: Optional[int]` a `MABaseGraphState`. Incrementato in `_handle_modify()` e `_handle_reject()`. Resettato a `0` in `initialize_new_cycle()` e `cleanup_on_final_response()`. In `_generate_plan()`, se `replan_iteration_count >= 5`: imposta `plan=[]`, `plan_aborted=True`, `plan_confirmation="accepted"` → routing verso `FINAL_RESPONDER`.
 
 ---
 
-### D16 — Nessuna gestione degli errori nell'esecuzione dei tool `[OPEN]` 🔴
+### D16 — Nessuna gestione degli errori nell'esecuzione dei tool `[RESOLVED — PLN-011]` 🔴
 
-**File:** `safercast_agent.py:_execute_tool_call()`, `models_agent.py:_execute_tool_call()`
+~~`tool._execute(**tool_args)` non wrappato in try/except. Eccezioni non gestite crashavano il grafo.~~
 
-**Descrizione:** `tool._execute(**tool_args)` non è wrapped in try/except. Se il tool lancia un'eccezione (errore di rete, risposta API malformata, file S3 non trovato, ecc.), l'eccezione si propaga non gestita, crashando il grafo e lasciando lo stato in una condizione inconsistente.
-
-**Fix suggerito:** Wrappare in try/except, catturare l'eccezione, costruire un `ToolMessage` con content di errore, registrare il fallimento in `tool_results`, e proseguire (o emettere un interrupt di errore).
+**Fix applicato (PLN-011):** In `DataRetrieverExecutor._execute_tool_call()` e `ModelsExecutor._execute_tool_call()`, l'esecuzione del tool è ora wrappata in try/except. In caso di eccezione: viene costruito un `ToolMessage` con il messaggio di errore, il fallimento viene registrato in `tool_results[step_key]` con `{status: "error", message: "..."}` via `_record_tool_error()`, e il grafo prosegue normalmente. Il `FINAL_RESPONDER` può quindi esporre l'errore all'utente.
 
 ---
 
@@ -1013,8 +969,9 @@ Il supervisor non vede `state["messages"]`. Vede solo `parsed_request` (dict str
 | `plan_aborted` | `bool` | SUPERVISOR_PLANNER_CONFIRM → subgraph | Ciclo |
 | `replan_request` / `replan_type` | `AnyMessage` / `str` | SUPERVISOR_PLANNER_CONFIRM → SUPERVISOR_AGENT | Ciclo |
 | `clarify_iteration_count` | `int` | SUPERVISOR_PLANNER_CONFIRM (clarify loop) | Ciclo |
+| `replan_iteration_count` | `int` | SUPERVISOR_PLANNER_CONFIRM (modify/reject loop) | Ciclo |
 | `tool_results` | `dict` | Executors → FINAL_RESPONDER | Ciclo |
-| `awaiting_user` | `bool` | — | Dead code (D6) |
+| ~~`awaiting_user`~~ | ~~`bool`~~ | ~~Dead code rimosso (D6 — PLN-011)~~ | ~~—~~ |
 | `retriever_invocation` | `AIMessage` | RETRIEVER_AGENT → RETRIEVER_EXECUTOR | Step |
 | `retriever_invocation_confirmation` | `str` | RETRIEVER_CONFIRM → arco subgraph | Step |
 | `retriever_reinvocation_request` | `AnyMessage` | RETRIEVER_CONFIRM → RETRIEVER_AGENT | Step |
@@ -1039,9 +996,9 @@ Il piano viene generato una volta dal `SUPERVISOR_AGENT` e rimane immutato per t
 
 L'intera conoscenza del supervisor sullo scopo di uno step è compressa in una stringa `goal`. I tool argument vengono proposti dall'agente specializzato dalla propria visione contestuale (layer disponibili + goal + parsed_request). Qualsiasi informazione più specifica che il supervisor volesse trasmettere (es. "usa specificamente il layer X come input") deve essere esplicitamente scritta nel goal — non c'è un meccanismo strutturato.
 
-### L3 — Assenza di gestione delle eccezioni nei tool
+### L3 — Gestione degli errori nei tool (parziale)
 
-Nessun meccanismo di recovery da errori di esecuzione (vedi D16). Il sistema assume che i tool abbiano sempre successo o che gli errori siano già rilevati dalla validazione in pre-esecuzione.
+I tool sono ora wrappati in try/except negli executor (PLN-011, fix D16): un'eccezione genera un `ToolMessage` di errore senza crashare il grafo. Il `FINAL_RESPONDER` espone l'errore all'utente. Non esiste tuttavia un meccanismo di retry automatico o di interrupt dedicato al tool error.
 
 ### L4 — LayersAgent viene richiamato a ogni re-enter del router
 
@@ -1062,17 +1019,17 @@ Il pattern Agent → InvocationConfirm → Executor implica sempre la possibilit
 | D3 | 🟡 | ✅ RESOLVED | StateManager usava `{prefix}_confirmation` |
 | D4 | 🟡 | ✅ RESOLVED | FinalResponder context come AIMessage |
 | D5 | 🟡 | ✅ RESOLVED | _handle_clarify ricorsivo con interrupt annidati |
-| D6 | ⚪ | 🔵 OPEN | `awaiting_user=True → END` dead code |
+| D6 | ⚪ | ✅ RESOLVED (PLN-011) | `awaiting_user=True → END` dead code — rimosso |
 | D7 | 🔴 | ✅ RESOLVED (PLN-009) | Nessun interrupt mid-plan |
-| D8 | ⚪ | 🟡 PARTIAL | `current_step += 1` su None (guard presente) |
+| D8 | ⚪ | ✅ RESOLVED (PLN-011) | `current_step += 1` su None — incremento rimosso dall'Agent |
 | D9 | ⚪ | ✅ RESOLVED | Piano vuoto `plan_confirmation` rimane "pending" |
 | D10 | ⚪ | ✅ RESOLVED | Entrambi i messaggi classifier erano SystemMessage |
-| D11 | 🟡 | 🔵 OPEN | `state["messages"] = invocation` (non lista) in no-tool-calls agent |
-| D12 | 🟡 | 🔵 OPEN | Agenti specializzati ignorano cronologia conversazione |
-| D13 | 🟡 | 🔵 OPEN | Supervisor pianifica senza cronologia conversazione |
-| D14 | 🟡 | 🔵 OPEN | Double-increment `current_step` nel percorso no-tool-calls |
-| D15 | ⚪ | 🔵 OPEN | Nessun limite al loop modify/reject |
-| D16 | 🔴 | 🔵 OPEN | Nessuna gestione errori nell'esecuzione tool |
+| D11 | 🟡 | ✅ RESOLVED (PLN-011) | `state["messages"] = invocation` (non lista) in no-tool-calls agent |
+| D12 | 🟡 | ✅ RESOLVED (PLN-011) | Agenti specializzati ignorano cronologia conversazione |
+| D13 | 🟡 | ✅ RESOLVED (PLN-011) | Supervisor pianifica senza cronologia conversazione |
+| D14 | 🟡 | ✅ RESOLVED (PLN-011) | Double-increment `current_step` nel percorso no-tool-calls |
+| D15 | ⚪ | ✅ RESOLVED (PLN-011) | Nessun limite al loop modify/reject |
+| D16 | 🔴 | ✅ RESOLVED (PLN-011) | Nessuna gestione errori nell'esecuzione tool |
 
 
 ---

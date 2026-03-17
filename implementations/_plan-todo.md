@@ -22,4 +22,3 @@
 | Piano | Titolo | File target |
 |---|---|---|
 | PLN-003 | Test con prompt override del SupervisorAgent | `tests/T006_prompt_override.py` |
-| PLN-011 | Graph Bug Fixes & Robustezza Conversazionale | `safercast_agent.py`, `models_agent.py`, `supervisor.py`, prompt files, `states.py` |
