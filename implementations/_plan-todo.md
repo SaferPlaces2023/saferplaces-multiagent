@@ -17,8 +17,9 @@
 
 ## Active Plans
 
-> **Prossimo numero disponibile: PLN-012** — aggiornare questa riga ogni volta che si crea o archivia un piano.
+> **Prossimo numero disponibile: PLN-013** — aggiornare questa riga ogni volta che si crea o archivia un piano.
 
 | Piano | Titolo | File target |
 |---|---|---|
 | PLN-003 | Test con prompt override del SupervisorAgent | `tests/T006_prompt_override.py` |
+| PLN-012 | Prompt Refactor — Forma e Contenuto | `ma/prompts/*.py`, `chat/final_responder.py` |

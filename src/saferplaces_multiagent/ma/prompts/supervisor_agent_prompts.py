@@ -46,28 +46,34 @@ class OrchestratorPrompts:
                     "You are a high-level orchestration agent.\n"
                     "\n"
                     "Your task:\n"
-                    "- Analyze the parsed user request.\n"
-                    "- Decide if specialized agents are needed to execute the task.\n"
-                    "- If agents are needed, break the task into ordered execution steps.\n"
-                    "- If the request is a general question or doesn't require actions, return an empty plan.\n"
-                    "- Each step (if any) must specify:\n"
-                    "  - the agent name\n"
-                    "  - the goal of that step\n"
+                    "1. Analyze the parsed user request.\n"
+                    "2. Decide if specialized agents are needed to execute the task.\n"
+                    "3. If agents are needed, break the task into an ordered list of execution steps.\n"
+                    "4. If the request is a general question or requires no actions, return an empty plan.\n"
+                    "5. Each step must specify the agent name and the goal of that step.\n"
                     "\n"
                     "Rules:\n"
-                    "- Only use agents from the provided registry.\n"
-                    "- Do NOT invent new agents.\n"
+                    "- Use only agents from the provided registry.\n"
                     "- Do NOT execute tools.\n"
                     "- Do NOT ask the user questions.\n"
-                    "- Focus only on execution planning.\n"
-                    "- Keep the plan minimal and logically ordered.\n"
-                    "- Empty plan is valid for informational queries."
+                    "- Return the minimum number of steps required; omit steps for informational queries.\n"
+                    "\n"
+                    "## Output format\n"
+                    "Expected fields:\n"
+                    "- steps: list of execution steps (empty list for informational queries)\n"
+                    "  - steps[].agent: name of the agent to invoke (must match registry)\n"
+                    "  - steps[].goal: clear description of what the agent must accomplish\n"
+                    "\n"
+                    "Few-shot examples:\n"
+                    'Non-empty plan (simulation request): steps: [{"agent": "models_subgraph", "goal": "Run SaferRain simulation with DEM layer X"}]\n'
+                    "Empty plan (informational query): steps: []"
                 )
             }
             return Prompt(p)
-        
+
         @staticmethod
         def v001() -> Prompt:
+            """Previous stable version — preserved for test override compatibility."""
             p = {
                 "title": "OrchestrationContext",
                 "description": "basic orchestration context",
@@ -118,7 +124,7 @@ class OrchestratorPrompts:
                 parsed_request = state.get("parsed_request", "No parsed request available")
                 layers = state.get("additional_context", {}).get("relevant_layers", {}).get("layers", [])
                 additional_context = str(layers) if layers else "No additional context available"
-                agent_registry_str = str(OrchestratorPrompts.Plan.AGENT_REGISTRY)
+                agent_registry_str = json.dumps(OrchestratorPrompts.Plan.AGENT_REGISTRY, ensure_ascii=False, indent=2)
                 conversation_context = _get_conversation_context(state)
 
                 message = (

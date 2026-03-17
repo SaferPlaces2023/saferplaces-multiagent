@@ -5,7 +5,7 @@ from ...common.states import MABaseGraphState, StateManager
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 from ..prompts import final_responder_prompts
-from langchain_core.messages import AIMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 
 
@@ -24,7 +24,7 @@ class FinalResponder(MultiAgentNode):
 
         invoke_messages = [
             SystemMessage(content=prompt_response.message),
-            SystemMessage(content=prompt_context.message),
+            HumanMessage(content=prompt_context.message),
             *state["messages"],
         ]
 

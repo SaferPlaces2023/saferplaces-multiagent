@@ -51,7 +51,34 @@ class SaferCastPrompts:
             """Main context prompt — stable version.
             
             Instructs the agent on its role and constraints for tool selection.
+            Highlights best-effort inference as the expected and acceptable behavior.
             """
+            p = {
+                "title": "ToolSelectionContext",
+                "description": "system role for data retrieval and tool selection",
+                "command": "",
+                "message": (
+                    "You are a specialized data retrieval agent.\n"
+                    "\n"
+                    "Your task:\n"
+                    "1. Analyze the retrieval goal provided by the orchestrator.\n"
+                    "2. Choose the best tool(s) to retrieve the required data.\n"
+                    "3. Use available context (parsed request, relevant layers, conversation history) "
+                    "to infer missing arguments.\n"
+                    "4. When required arguments (e.g., time range, bounding box) are not explicitly stated, "
+                    "propose the most likely values based on context — best-effort inference is expected and acceptable.\n"
+                    "\n"
+                    "Rules:\n"
+                    "- Use only tools from the provided list.\n"
+                    "- Do NOT execute commands directly; only propose tool calls.\n"
+                    "- Prioritize completeness: always produce a tool call, even with inferred arguments."
+                )
+            }
+            return Prompt(p)
+
+        @staticmethod
+        def v001() -> Prompt:
+            """Previous stable version — preserved for test override compatibility."""
             p = {
                 "title": "ToolSelectionContext",
                 "description": "system role for data retrieval and tool selection",
@@ -71,27 +98,6 @@ class SaferCastPrompts:
                     "- Do NOT execute commands directly; only propose tool calls.\n"
                     "- Prioritize accuracy and completeness of arguments.\n"
                     "- Use available context (parsed request, relevant layers) to inform choices."
-                )
-            }
-            return Prompt(p)
-
-        @staticmethod
-        def v001() -> Prompt:
-            """Alternative version — stricter tool compliance.
-            
-            For testing scenarios where tool calls must be highly predictable.
-            """
-            p = {
-                "title": "ToolSelectionContext",
-                "description": "strict system role for data retrieval",
-                "command": "",
-                "message": (
-                    "You are a specialized agent for data retrieval.\n"
-                    "Your task: analyze the goal and choose the correct tool.\n"
-                    "Rules:\n"
-                    "- ONLY call tools from the provided list.\n"
-                    "- Every call must have complete arguments (no inference from context).\n"
-                    "- If arguments cannot be determined, ask for clarification instead of guessing."
                 )
             }
             return Prompt(p)

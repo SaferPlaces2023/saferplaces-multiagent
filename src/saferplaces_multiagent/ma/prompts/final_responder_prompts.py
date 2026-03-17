@@ -1,6 +1,5 @@
 """Final responder prompts for generating user-facing responses."""
 
-import json
 from typing import Dict, Any
 
 from ...common.states import MABaseGraphState
@@ -50,46 +49,6 @@ class FinalResponderPrompts:
 
     class Context:
         """Context prompts for providing state information to the final response."""
-
-        class Structured:
-            """Structured context in JSON format."""
-
-            @staticmethod
-            def stable(state: MABaseGraphState, **kwargs) -> Prompt:
-                """Stable version: serialize state as JSON."""
-                context_dict = {
-                    'parsed_request': state.get('parsed_request'),
-                    'plan': state.get('plan'),
-                    'tool_results': state.get('tool_results'),
-                    'error': state.get('error')
-                }
-                context_json = json.dumps(context_dict, ensure_ascii=False, indent=2)
-                
-                p = {
-                    "title": "StructuredContext",
-                    "description": "Serializza lo stato come JSON per il contesto",
-                    "command": "",
-                    "message": f"Context JSON:\n{context_json}"
-                }
-                return Prompt(p)
-
-            @staticmethod
-            def v001(state: MABaseGraphState, **kwargs) -> Prompt:
-                """Minimal version: only main fields."""
-                context_dict = {
-                    'intent': (state.get('parsed_request') or {}).get('intent'),
-                    'plan': state.get('plan'),
-                    'has_errors': bool(state.get('error'))
-                }
-                context_json = json.dumps(context_dict, ensure_ascii=False, indent=2)
-                
-                p = {
-                    "title": "StructuredContext",
-                    "description": "Minimal structured context",
-                    "command": "",
-                    "message": f"Context JSON:\n{context_json}"
-                }
-                return Prompt(p)
 
         class Formatted:
             """Formatted context in human-readable text."""

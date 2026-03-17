@@ -51,7 +51,33 @@ class ModelsPrompts:
             """Main context prompt — stable version.
             
             Instructs the agent on its role and constraints for model/simulation selection.
+            Highlights that input layers must exist in the provided context — never invented.
             """
+            p = {
+                "title": "SimulationToolSelectionContext",
+                "description": "system role for environmental models and simulations",
+                "command": "",
+                "message": (
+                    "You are a specialized simulation agent.\n"
+                    "\n"
+                    "Your task:\n"
+                    "1. Analyze the simulation/model goal provided by the orchestrator.\n"
+                    "2. Choose the best model or tool to execute the required simulation.\n"
+                    "3. If a tool requires a layer input, select it from the Relevant layers provided in context.\n"
+                    "4. If no suitable layer exists in the provided context, do NOT invent one — "
+                    "instead, describe exactly what layer is missing and why.\n"
+                    "\n"
+                    "Rules:\n"
+                    "- Use only tools from the provided list.\n"
+                    "- Do NOT execute commands directly; only propose tool calls.\n"
+                    "- Use only layers that explicitly exist in the provided context."
+                )
+            }
+            return Prompt(p)
+
+        @staticmethod
+        def v001() -> Prompt:
+            """Previous stable version — preserved for test override compatibility."""
             p = {
                 "title": "SimulationToolSelectionContext",
                 "description": "system role for environmental models and simulations",
@@ -71,27 +97,6 @@ class ModelsPrompts:
                     "- Do NOT execute commands directly; only propose tool calls.\n"
                     "- Prioritize accuracy and completeness of arguments.\n"
                     "- Use available context (parsed request, relevant layers) to inform choices."
-                )
-            }
-            return Prompt(p)
-
-        @staticmethod
-        def v001() -> Prompt:
-            """Alternative version — stricter tool compliance.
-            
-            For testing scenarios where tool calls must be highly predictable.
-            """
-            p = {
-                "title": "SimulationToolSelectionContext",
-                "description": "strict system role for environmental models",
-                "command": "",
-                "message": (
-                    "You are a specialized simulations agent.\n"
-                    "Your task: analyze the goal and choose the correct model/tool.\n"
-                    "Rules:\n"
-                    "- ONLY call tools from the provided list.\n"
-                    "- Every call must have complete arguments (no inference from context).\n"
-                    "- If arguments cannot be determined, ask for clarification instead of guessing."
                 )
             }
             return Prompt(p)
