@@ -11,7 +11,7 @@
 
 **Componente**: `chat/request_parser.py` → nodo `REQUEST_PARSER`
 
-**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-004)
+**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-004); prompt refactored (PLN-012)
 
 **Comportamento**:
 - Chiama `StateManager.initialize_new_cycle()` — resetta plan, parsed_request, tool_results, agent state
@@ -36,7 +36,7 @@
 
 **Componente**: `orchestrator/supervisor.py` → subgraph `SUPERVISOR_SUBGRAPH`
 
-**Status**: ✅ **Active** — Implementata con PLN-008 (D1: fix abort → FINAL_RESPONDER, D5: fix clarify ricorsione, D6: dead code)
+**Status**: ✅ **Active** — Implementata con PLN-008 (D1: fix abort → FINAL_RESPONDER, D5: fix clarify ricorsione, D6: dead code); prompt refactored (PLN-012)
 
 **Nodi del subgraph**:
 
@@ -63,7 +63,7 @@
 
 **Componente**: `specialized/safercast_agent.py` → subgraph `RETRIEVER_SUBGRAPH`
 
-**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-005)
+**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-005); prompt refactored (PLN-012)
 
 **Nodi**:
 
@@ -89,7 +89,7 @@
 
 **Componente**: `specialized/models_agent.py` → subgraph `MODELS_SUBGRAPH`
 
-**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-006)
+**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-006); prompt refactored (PLN-012)
 
 **Nodi**:
 
@@ -109,7 +109,7 @@
 
 **Componente**: `chat/final_responder.py` → nodo `FINAL_RESPONDER`
 
-**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-004); D4 ricorretto (ordinamento messaggi) con PLN-008
+**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-004); D4 ricorretto (ordinamento messaggi) con PLN-008; contesto spostato a `HumanMessage` (PLN-012)
 
 **Comportamento**:
 - Legge: `messages`, `layer_registry`, `tool_results`, `parsed_request`
