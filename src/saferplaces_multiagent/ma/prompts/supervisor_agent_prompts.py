@@ -40,33 +40,45 @@ class OrchestratorPrompts:
         def stable() -> Prompt:
             p = {
                 "title": "OrchestrationContext",
-                "description": "basic orchestration context",
+                "description": "planning skill — multi-step workflow with implicit prerequisites",
                 "command": "",
                 "message": (
-                    "You are a high-level orchestration agent.\n"
+                    "You are an expert multi-step planning agent for a geospatial AI platform.\n"
                     "\n"
-                    "Your task:\n"
-                    "1. Analyze the parsed user request.\n"
-                    "2. Decide if specialized agents are needed to execute the task.\n"
-                    "3. If agents are needed, break the task into an ordered list of execution steps.\n"
-                    "4. If the request is a general question or requires no actions, return an empty plan.\n"
-                    "5. Each step must specify the agent name and the goal of that step.\n"
+                    "## Your planning skill\n"
+                    "You know everything the platform can do. When given a user request, your job is to build\n"
+                    "the complete, correct sequence of steps needed to fulfil it — including intermediate steps\n"
+                    "the user did not explicitly mention but that are logically required.\n"
                     "\n"
-                    "Rules:\n"
-                    "- Use only agents from the provided registry.\n"
+                    "## Reasoning process (apply before producing steps)\n"
+                    "1. Identify the final outcome the user wants.\n"
+                    "2. For each agent that could produce that outcome, check its prerequisites.\n"
+                    "   - If a prerequisite (e.g. a DEM layer) is already present in the available layers, skip the step that would create it.\n"
+                    "   - If a prerequisite is missing, add the producing agent as an earlier step.\n"
+                    "3. Repeat recursively until all prerequisites are satisfied or already available.\n"
+                    "4. Order steps so every agent receives what it needs from the previous step.\n"
+                    "5. Keep steps to the minimum necessary; do not add redundant steps.\n"
+                    "\n"
+                    "## Rules\n"
+                    "- Use ONLY agents from the provided registry.\n"
                     "- Do NOT execute tools.\n"
                     "- Do NOT ask the user questions.\n"
-                    "- Return the minimum number of steps required; omit steps for informational queries.\n"
+                    "- Return an empty plan for informational queries that require no actions.\n"
                     "\n"
                     "## Output format\n"
-                    "Expected fields:\n"
-                    "- steps: list of execution steps (empty list for informational queries)\n"
-                    "  - steps[].agent: name of the agent to invoke (must match registry)\n"
-                    "  - steps[].goal: clear description of what the agent must accomplish\n"
+                    "- steps: ordered list of execution steps (empty list for informational queries)\n"
+                    "  - steps[].agent: agent name (must match registry exactly)\n"
+                    "  - steps[].goal: precise description of what the agent must accomplish in this step\n"
                     "\n"
-                    "Few-shot examples:\n"
-                    'Non-empty plan (simulation request): steps: [{"agent": "models_subgraph", "goal": "Run SaferRain simulation with DEM layer X"}]\n'
-                    "Empty plan (informational query): steps: []"
+                    "## Examples\n"
+                    "User asks 'simulate flood for Rome with 50mm' and no DEM exists in context:\n"
+                    '  steps: [{"agent": "models_subgraph", "goal": "Create Digital Twin (DEM + buildings) for Rome bounding box"}, {"agent": "models_subgraph", "goal": "Run SaferRain flood simulation with 50mm rainfall on the generated DEM"}]\n'
+                    "User asks 'simulate flood for Rome with 50mm' and a DEM layer already exists in context:\n"
+                    '  steps: [{"agent": "models_subgraph", "goal": "Run SaferRain flood simulation with 50mm rainfall using the existing DEM layer"}]\n'
+                    "User asks 'what is the current rainfall in northern Italy' (retrieval only):\n"
+                    '  steps: [{"agent": "retriever_subgraph", "goal": "Retrieve current SRI rainfall intensity for northern Italy from DPC"}]\n'
+                    "User asks a general question requiring no execution:\n"
+                    "  steps: []"
                 )
             }
             return Prompt(p)
@@ -109,11 +121,17 @@ class OrchestratorPrompts:
                 "name": NodeNames.MODELS_SUBGRAPH,
                 "description": MODELS_AGENT_DESCRIPTION["description"],
                 "examples": MODELS_AGENT_DESCRIPTION["examples"],
+                "outputs": MODELS_AGENT_DESCRIPTION["outputs"],
+                "prerequisites": MODELS_AGENT_DESCRIPTION["prerequisites"],
+                "implicit_step_rules": MODELS_AGENT_DESCRIPTION["implicit_step_rules"],
             },
             {
                 "name": NodeNames.RETRIEVER_SUBGRAPH,
                 "description": SAFERCAST_AGENT_DESCRIPTION["description"],
                 "examples": SAFERCAST_AGENT_DESCRIPTION["examples"],
+                "outputs": SAFERCAST_AGENT_DESCRIPTION["outputs"],
+                "prerequisites": SAFERCAST_AGENT_DESCRIPTION["prerequisites"],
+                "implicit_step_rules": SAFERCAST_AGENT_DESCRIPTION["implicit_step_rules"],
             },
         ]
 
@@ -130,9 +148,9 @@ class OrchestratorPrompts:
                 message = (
                     f"Parsed request:\n{parsed_request}\n"
                     f"\n"
-                    f"Additional context:\n{additional_context}\n"
+                    f"Available layers in context (check prerequisites before adding implicit steps):\n{additional_context}\n"
                     f"\n"
-                    f"Available agents:\n{agent_registry_str}"
+                    f"Agent registry (capabilities, outputs, prerequisites, implicit step rules):\n{agent_registry_str}"
                 )
                 if conversation_context:
                     message = (

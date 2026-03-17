@@ -43,7 +43,25 @@ SAFERCAST_AGENT_DESCRIPTION = {
         "Retrieve precipitation forecast for Milan for the next 24 hours",
         "Get radar rainfall intensity (SRI) for northern Italy in the last 6 hours",
         "Download temperature map from DPC for a specified bbox and time range",
-    ]
+    ],
+    "outputs": [
+        "Meteorological raster layer — DPC product (SRI, SRT1/3/6/12/24, VMI, TEMP, LTG, …)",
+        "Weather forecast raster layer — Meteoblue (precipitation, temperature, wind, …)",
+    ],
+    "prerequisites": {
+        "DPCRetrieverTool": (
+            "None — requires product name, bbox, and time range. Italy coverage only."
+        ),
+        "MeteoblueRetrieverTool": (
+            "None — requires variable, bbox, and forecast time range. Global coverage."
+        ),
+    },
+    "implicit_step_rules": [
+        (
+            "IMPLICIT STEP: use this agent as a preliminary step when a flood simulation requires "
+            "observed or forecast rainfall raster input and no such layer exists in context."
+        ),
+    ],
 }
 
 

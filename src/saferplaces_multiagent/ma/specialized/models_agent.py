@@ -46,7 +46,33 @@ MODELS_AGENT_DESCRIPTION = {
         "Run flood propagation for a 50mm rainfall scenario on a bounding box",
         "Create a Digital Twin (DEM + buildings + land-use) for a new area of interest",
         "Simulate flood extent and water depth using a multiband radar rainfall raster and an existing DEM",
-    ]
+    ],
+    "outputs": [
+        "DEM/DTM raster layer (from DigitalTwinTool)",
+        "Building footprints layer (from DigitalTwinTool)",
+        "Land-use/land-cover layer (from DigitalTwinTool)",
+        "Water depth raster — flood simulation output (from SaferRainTool)",
+    ],
+    "prerequisites": {
+        "DigitalTwinTool": (
+            "None — only requires a bounding box (AOI). "
+            "Use as the FIRST step when no DEM exists in the available layers."
+        ),
+        "SaferRainTool": (
+            "Requires a DEM/DTM raster. "
+            "If no DEM is available in the context layers, add a DigitalTwinTool step (via models_subgraph) BEFORE this step."
+        ),
+    },
+    "implicit_step_rules": [
+        (
+            "IMPLICIT STEP: if the user asks for a flood simulation and no DEM layer is present "
+            "in the available context layers, prepend a models_subgraph step to create the Digital Twin first."
+        ),
+        (
+            "IMPLICIT STEP: if the user asks for a flood simulation using a rainfall raster (not a constant value) "
+            "and no rainfall raster layer exists in context, consider prepending a retriever_subgraph step to retrieve it."
+        ),
+    ],
 }
 
 
