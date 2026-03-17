@@ -1,7 +1,7 @@
 import os
 import requests
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, AliasChoices
 
@@ -199,6 +199,15 @@ class SaferRainTool(BaseTool):
       • "Run flood simulation using DEM and radar rainfall raster"
       • "Calculate water depth with multiband rainfall time series"
     """
+
+    short_description: ClassVar[str] = (
+        "Runs flood propagation simulations and outputs a water depth raster (GeoTIFF). "
+        "Key params: dem (required, terrain elevation raster or layer reference), "
+        "rain (required, constant mm value or rainfall raster path/URI), "
+        "mode (lambda=fast/small models, batch=slow/large models), "
+        "band/to_band (select band range for multiband time-series rainfall rasters). "
+        "Ideal when computing flood extent and water depth for a given rainfall event over an existing DEM."
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the SaferRain Tool."""

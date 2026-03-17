@@ -1,7 +1,7 @@
 import os
 import requests
 
-from typing import Any, Dict, List, Optional
+from typing import Any, ClassVar, Dict, List, Optional
 
 from pydantic import BaseModel, Field, AliasChoices
 
@@ -154,6 +154,14 @@ class DigitalTwinTool(BaseTool):
       • "Generate DEM, buildings, and land-use for urban planning in Netherlands"
       • "Prepare geospatial base layers for coastal erosion analysis"
     """
+
+    short_description: ClassVar[str] = (
+        "Creates a geospatial Digital Twin for a given Area of Interest: DEM/DTM raster, building footprints, "
+        "land-use/land-cover, and sea/land mask — all spatially aligned and clipped to the AOI. "
+        "Key params: bbox (required, EPSG:4326 west/south/east/north), dem_dataset (auto-selected by region if None, "
+        "or explicit catalog key), pixelsize (output resolution in meters, optional). "
+        "Ideal as the first step when base geospatial layers are needed for a new area before running simulations."
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the DigitalTwin Tool."""

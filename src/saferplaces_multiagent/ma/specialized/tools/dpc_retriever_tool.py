@@ -1,7 +1,7 @@
 import os
 import requests
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
@@ -193,6 +193,15 @@ class DPCRetrieverTool(BaseTool):
       • "Get cloud cover and lightning data for a specific area"
       • "Download 24-hour cumulative precipitation for flood monitoring"
     """
+
+    short_description: ClassVar[str] = (
+        "Retrieves real-time and historical meteorological raster products from the Italian Civil Protection (DPC) radar network. "
+        "Key params: product (required, e.g. SRI=surface rainfall intensity mm/h, VMI=max reflectivity dBZ, "
+        "SRT1/3/6/12/24=cumulative precipitation, TEMP=temperature, LTG=lightning, HRD=heavy rain index), "
+        "bbox (EPSG:4326 bounding box, defaults to all Italy), "
+        "time_start/time_end (ISO8601; data has ~10 min delay — use past timestamps). "
+        "Coverage: Italy only."
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the DPC Retriever Tool."""

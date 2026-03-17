@@ -1,7 +1,7 @@
 import os
 import requests
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
@@ -196,6 +196,16 @@ class MeteoblueRetrieverTool(BaseTool):
       • "Get temperature and wind speed data for a specific area"
       • "Download humidity forecast for the next 3 days for disaster planning"
     """
+
+    short_description: ClassVar[str] = (
+        "Retrieves global weather forecast data (raster GeoTIFF) from Meteoblue, up to 14 days ahead. "
+        "Key params: variable (required, e.g. PRECIPITATION=mm, TEMPERATURE=°C, WINDSPEED=m/s, "
+        "WINDDIRECTION=degrees, RELATIVEHUMIDITY=%, PRECIPITATION_PROBABILITY=%, SNOWFRACTION, FELTTEMPERATURE, "
+        "SEALEVELPRESSURE=hPa, UVINDEX, PICTOCODE), "
+        "bbox (EPSG:4326 bounding box), "
+        "time_start/time_end (ISO8601; must be future timestamps within 14-day forecast window). "
+        "Global coverage."
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the Meteoblue Retriever Tool."""

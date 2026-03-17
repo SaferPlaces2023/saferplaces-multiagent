@@ -23,22 +23,32 @@ from ..prompts.models_agent_prompts import ModelsPrompts
 # ============================================================================
 
 # Agent registry description
+MODELS_AGENT_TOOLS = [
+    DigitalTwinTool,
+    SaferRainTool
+]
 MODELS_AGENT_DESCRIPTION = {
     "name": NodeNames.MODELS_AGENT,
     "description": (
-        "Specialized agent that executes environmental models via APIs: flood (rain or storm-surge), "
-        "fire propagation, structural impact analyses and similar scenarios. "
-        "It often uses digital twin data as input for simulations and analyses and it can create digital twins for new areas. "
-        "It exposes tools that run models and returns generated layers or reports for downstream processing."
+        "Specialized agent that executes environmental models and geospatial analyses via APIs: "
+        "flood propagation simulations, digital twin generation, and similar spatial scenarios. "
+        "It creates base geospatial layers for new areas and runs model simulations, "
+        "returning output rasters or reports for downstream processing.\n"
+        "\n"
+        "Available tools:\n"
+        + "\n".join(
+            f"  • {cls.__name__}: {cls.short_description}"
+            for cls in MODELS_AGENT_TOOLS
+            if hasattr(cls, "short_description")
+        )
     ),
     "examples": [
-        "Run flood propagation for a heavy-rain scenario on a bbox",
-        "Simulate fire spread given ignition points and wind conditions",
-        "Estimate compromised structures after a flood event"
+        "Run flood propagation for a 50mm rainfall scenario on a bounding box",
+        "Create a Digital Twin (DEM + buildings + land-use) for a new area of interest",
+        "Simulate flood extent and water depth using a multiband radar rainfall raster and an existing DEM",
     ]
 }
 
-MODELS_AGENT_TOOLS = [DigitalTwinTool, SaferRainTool]
 
 # Invocation confirmation states
 INVOCATION_PENDING = "pending"

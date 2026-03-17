@@ -22,21 +22,30 @@ from ..prompts.safercast_agent_prompts import SaferCastPrompts
 # ============================================================================
 
 # Agent registry description
+SAFERCAST_AGENT_TOOLS = [
+    DPCRetrieverTool,
+    MeteoblueRetrieverTool
+]
 SAFERCAST_AGENT_DESCRIPTION = {
     "name": NodeNames.RETRIEVER_AGENT,
     "description": (
         "Specialized agent that retrieves meteorological and observational datasets "
-        "(e.g. DPC radar products, Meteoblue forecasts) and prepares them as layers "
-        "for downstream processing and analysis."
+        "and prepares them as layers for downstream processing and analysis.\n"
+        "\n"
+        "Available tools:\n"
+        + "\n".join(
+            f"  • {cls.__name__}: {cls.short_description}"
+            for cls in SAFERCAST_AGENT_TOOLS
+            if hasattr(cls, "short_description")
+        )
     ),
     "examples": [
         "Retrieve precipitation forecast for Milan for the next 24 hours",
-        "Get radar rainfall intensity (SRI) for northern Italy",
-        "Download temperature map for a specified bbox and time range"
+        "Get radar rainfall intensity (SRI) for northern Italy in the last 6 hours",
+        "Download temperature map from DPC for a specified bbox and time range",
     ]
 }
 
-SAFERCAST_AGENT_TOOLS = [DPCRetrieverTool, MeteoblueRetrieverTool]
 
 # Invocation confirmation states
 INVOCATION_PENDING = "pending"
