@@ -7,6 +7,8 @@ Prompts are structured hierarchically with `stable()` and version variants for A
 import json
 from typing import Optional
 
+from langchain_core.messages import HumanMessage, AIMessage
+
 from ...common.states import MABaseGraphState
 
 from . import Prompt
@@ -16,6 +18,23 @@ from . import Prompt
 STATE_MODELS_INVOCATION = "models_invocation"
 STATE_MODELS_CONFIRMATION = "models_invocation_confirmation"
 STATE_MODELS_REINVOCATION_REQUEST = "models_reinvocation_request"
+
+
+def _get_conversation_context(state: MABaseGraphState, n: int = 5) -> str:
+    """Return last n HumanMessage/AIMessage (no tool_calls) as a readable block."""
+    messages = state.get("messages") or []
+    relevant = [
+        m for m in messages
+        if isinstance(m, HumanMessage)
+        or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
+    ]
+    if not relevant:
+        return ""
+    lines = []
+    for m in relevant[-n:]:
+        role = "User" if isinstance(m, HumanMessage) else "Assistant"
+        lines.append(f"{role}: {m.content}")
+    return "\n".join(lines)
 
 
 class ModelsPrompts:
@@ -96,14 +115,17 @@ class ModelsPrompts:
                     .get("relevant_layers", {})
                     .get("layers", [])
                 )
+                conversation_context = _get_conversation_context(state)
 
                 message = (
                     f"Goal: {goal}\n"
                     f"\nParsed request: {parsed_request}\n"
                     "\nRelevant layers (use these as inputs if available):\n"
                     f"{json.dumps(relevant_layers, ensure_ascii=False, indent=2)}\n"
-                    "\nNow select and invoke the appropriate model/tool(s) to accomplish the goal."
                 )
+                if conversation_context:
+                    message += f"\nConversation context (last messages):\n{conversation_context}\n"
+                message += "\nNow select and invoke the appropriate model/tool(s) to accomplish the goal."
 
                 p = {
                     "title": "InitialModelInvocation",
@@ -143,6 +165,7 @@ class ModelsPrompts:
                 goal = state.get("plan", [{}])[state.get("current_step", 0)].get("goal", "N/A")
                 invocation = state.get(STATE_MODELS_INVOCATION)
                 reinvocation_request = state.get(STATE_MODELS_REINVOCATION_REQUEST)
+                conversation_context = _get_conversation_context(state)
 
                 tool_calls_str = "No tool calls found."
                 if invocation and hasattr(invocation, "tool_calls"):
@@ -157,11 +180,16 @@ class ModelsPrompts:
                     else "No feedback provided."
                 )
 
+                context_section = (
+                    f"\nConversation context (last messages):\n{conversation_context}\n"
+                    if conversation_context else ""
+                )
                 message = (
                     f"Goal: {goal}\n"
                     f"\nSome tools need to be reviewed or corrected.\n"
                     f"\nCurrent invocation:\n{tool_calls_str}\n"
                     f"\nUser feedback: {user_feedback}\n"
+                    f"{context_section}"
                     "\nProduce a new sequence of tool calls based on the user's feedback.\n"
                     "You can modify arguments, reorder, add, or delete tool calls."
                 )

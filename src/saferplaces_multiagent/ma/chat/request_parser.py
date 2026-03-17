@@ -48,8 +48,6 @@ class RequestParser(MultiAgentNode):
 
         parsed: ParsedRequest = self.llm.invoke(invoke_messages)
 
-        state['awaiting_user'] = False
-
         state["parsed_request"] = parsed.model_dump()
         print(f"[{NodeNames.REQUEST_PARSER}] ✓ Intent: {parsed.intent}")
         return state

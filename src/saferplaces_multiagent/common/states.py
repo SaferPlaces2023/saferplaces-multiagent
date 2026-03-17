@@ -57,7 +57,7 @@ class MABaseGraphState(TypedDict):
     plan_aborted: bool  # True when user aborted operation via SUPERVISOR_PLANNER_CONFIRM
     current_step: Optional[int]
     tool_results: Dict[str, Any]
-    awaiting_user: bool
+    replan_iteration_count: Optional[int]  # Incremented on every modify/reject cycle; reset on new request
 
     # DOC: specialized retriever agent state
     retriever_invocation: AIMessage
@@ -106,7 +106,7 @@ class StateManager:
         state['replan_type'] = None
         state['clarify_iteration_count'] = 0
         state['plan_aborted'] = False
-        state['awaiting_user'] = False
+        state['replan_iteration_count'] = 0
         
         # Clear previous tool results
         state['tool_results'] = {}
@@ -187,6 +187,7 @@ class StateManager:
         state['replan_type'] = None
         state['clarify_iteration_count'] = 0
         state['plan_aborted'] = False
+        state['replan_iteration_count'] = 0
         
         # Clear tool results (snapshot taken in final responder)
         state['tool_results'] = {}

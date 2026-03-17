@@ -76,9 +76,6 @@ class SupervisorAgent(MultiAgentNode):
         if state.get("plan_aborted"):
             return True
 
-        if state.get("awaiting_user"):
-            return True
-
         # Skip if already planning a confirmed step
         if (
             state.get("plan") is not None
@@ -94,7 +91,18 @@ class SupervisorAgent(MultiAgentNode):
 
     def _generate_plan(self, state: MABaseGraphState) -> MABaseGraphState:
         """Generate execution plan using LLM."""
-        
+
+        # Guard: abort if replan loop has exceeded the maximum allowed iterations
+        MAX_REPLAN_ITERATIONS = 5
+        replan_count = state.get("replan_iteration_count") or 0
+        if replan_count >= MAX_REPLAN_ITERATIONS:
+            print(f"[{self.name}] ⚠ Max replan iterations ({MAX_REPLAN_ITERATIONS}) reached — aborting")
+            state["plan"] = []
+            state["plan_aborted"] = True
+            state["plan_confirmation"] = PLAN_ACCEPTED
+            state["supervisor_next_node"] = NodeNames.FINAL_RESPONDER
+            return state
+
         main_prompt = OrchestratorPrompts.MainContext.stable().to(SystemMessage)
         
         if state.get("plan_confirmation") == PLAN_REJECTED:
@@ -125,7 +133,6 @@ class SupervisorAgent(MultiAgentNode):
 
         state["plan"] = validated_steps
         state["current_step"] = 0
-        state["awaiting_user"] = False
         state["plan_confirmation"] = PLAN_PENDING
         state["replan_request"] = None
         state["replan_type"] = None  # Reset after use
@@ -235,7 +242,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         state["replan_request"] = HumanMessage(content=user_response)
         state["replan_type"] = "modify"
         state["current_step"] = None
-        state["awaiting_user"] = False
+        state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
         print("[SupervisorPlannerConfirm] ↻ Requesting incremental modifications")
         return state
 
@@ -246,7 +253,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         state["replan_request"] = HumanMessage(content=user_response)
         state["replan_type"] = "reject"
         state["current_step"] = None
-        state["awaiting_user"] = False
+        state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
         print("[SupervisorPlannerConfirm] ↻ Requesting total replanning")
         return state
 
@@ -496,10 +503,6 @@ class SupervisorRouter(MultiAgentNode):
     @staticmethod
     def _determine_next_node(state: MABaseGraphState) -> str:
         """Compute the next node based on execution state."""
-        # Reserved for future mid-plan user interrupt — currently unused, see G007-D6
-        # if state.get("awaiting_user"):
-        #     return "END"
-
         plan = state.get("plan")
         current_step = state.get("current_step")
 

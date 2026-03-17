@@ -4,6 +4,8 @@ from typing import Optional, TypedDict, Union, List, Dict, Any, Literal
 
 import json
 
+from langchain_core.messages import HumanMessage, AIMessage
+
 from ...common.states import MABaseGraphState
 from ..names import NodeNames
 
@@ -11,6 +13,23 @@ from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
 from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
 
 from . import Prompt
+
+
+def _get_conversation_context(state: MABaseGraphState, n: int = 5) -> str:
+    """Return last n HumanMessage/AIMessage (no tool_calls) as a readable block."""
+    messages = state.get("messages") or []
+    relevant = [
+        m for m in messages
+        if isinstance(m, HumanMessage)
+        or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
+    ]
+    if not relevant:
+        return ""
+    lines = []
+    for m in relevant[-n:]:
+        role = "User" if isinstance(m, HumanMessage) else "Assistant"
+        lines.append(f"{role}: {m.content}")
+    return "\n".join(lines)
 
 
 class OrchestratorPrompts:
@@ -100,18 +119,26 @@ class OrchestratorPrompts:
                 layers = state.get("additional_context", {}).get("relevant_layers", {}).get("layers", [])
                 additional_context = str(layers) if layers else "No additional context available"
                 agent_registry_str = str(OrchestratorPrompts.Plan.AGENT_REGISTRY)
+                conversation_context = _get_conversation_context(state)
+
+                message = (
+                    f"Parsed request:\n{parsed_request}\n"
+                    f"\n"
+                    f"Additional context:\n{additional_context}\n"
+                    f"\n"
+                    f"Available agents:\n{agent_registry_str}"
+                )
+                if conversation_context:
+                    message = (
+                        f"Conversation context (last messages):\n{conversation_context}\n"
+                        f"\n"
+                    ) + message
 
                 p = {
                     "title": "PlanCreation",
                     "description": "basic plan creation",
                     "command": "",
-                    "message": (
-                        f"Parsed request:\n{parsed_request}\n"
-                        f"\n"
-                        f"Additional context:\n{additional_context}\n"
-                        f"\n"
-                        f"Available agents:\n{agent_registry_str}"
-                    )
+                    "message": message
                 }
                 return Prompt(p)
                 
@@ -124,24 +151,31 @@ class OrchestratorPrompts:
                 current_plan = state.get("plan", "No plan available")
                 replan_request = state.get("replan_request")
                 user_feedback = replan_request.content if replan_request else "No feedback"
+                conversation_context = _get_conversation_context(state)
     
+                message = (
+                    f"User requested modifications to the existing plan.\n"
+                    f"\n"
+                    f"Original request:\n{parsed_request}\n"
+                    f"\n"
+                    f"Current plan:\n{current_plan}\n"
+                    f"\n"
+                    f"User feedback:\n{user_feedback}\n"
+                    f"\n"
+                    f"Adjust the plan incrementally based on user feedback. "
+                    f"Keep what works and is not mentioned, modify only what's explicitly requested. "
+                    f"Minimize disruption to the overall approach."
+                )
+                if conversation_context:
+                    message = (
+                        f"Conversation context (last messages):\n{conversation_context}\n\n"
+                    ) + message
+
                 p = {
                     "title": "IncrementalReplanning",
                     "description": "incremental plan modification",
                     "command": "",
-                    "message": (
-                        f"User requested modifications to the existing plan.\n"
-                        f"\n"
-                        f"Original request:\n{parsed_request}\n"
-                        f"\n"
-                        f"Current plan:\n{current_plan}\n"
-                        f"\n"
-                        f"User feedback:\n{user_feedback}\n"
-                        f"\n"
-                        f"Adjust the plan incrementally based on user feedback. "
-                        f"Keep what works and is not mentioned, modify only what's explicitly requested. "
-                        f"Minimize disruption to the overall approach."
-                    )
+                    "message": message
                 }
                 return Prompt(p)
             

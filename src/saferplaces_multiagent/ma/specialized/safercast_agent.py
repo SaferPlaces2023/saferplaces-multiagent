@@ -148,13 +148,9 @@ class DataRetrieverAgent(MultiAgentNode):
     def _handle_no_tool_calls(invocation: AIMessage, state: MABaseGraphState) -> MABaseGraphState:
         """Handle case where LLM didn't generate tool calls."""
         print("[DataRetrieverAgent] ⚠ No tool calls generated")
-        if state.get("current_step") is None:
-            print("[DataRetrieverAgent] ⚠ current_step is None, initializing to 0")
-            state["current_step"] = 0
-        state["current_step"] += 1
         state[STATE_RETRIEVER_INVOCATION] = invocation
         state[STATE_RETRIEVER_CONFIRMATION] = None
-        state["messages"] = invocation
+        state["messages"] = [invocation]
         return state
 
     @staticmethod
@@ -461,7 +457,13 @@ class DataRetrieverExecutor(MultiAgentNode):
         tool = ToolRegistry().get(tool_name)
 
         # Execute tool (arguments already complete and validated from Confirm step)
-        result = tool._execute(**tool_args)
+        try:
+            result = tool._execute(**tool_args)
+        except Exception as exc:
+            error_msg = f"Tool '{tool_name}' raised an exception: {exc}"
+            print(f"[{self.name}] ⚠ {error_msg}")
+            self._record_tool_error(tool_name, tool_args, str(exc), state)
+            return ToolMessage(content=error_msg, tool_call_id=tool_call["id"])
 
         # Format tool response message (tool-specific)
         tool_response = self._format_tool_response(tool_call, tool_name, tool_args, result)
@@ -591,4 +593,28 @@ class DataRetrieverExecutor(MultiAgentNode):
             "tool": tool_name,
             "args": tool_args,
             "result": result
+        })
+
+    @staticmethod
+    def _record_tool_error(
+        tool_name: str,
+        tool_args: Dict[str, Any],
+        error_message: str,
+        state: MABaseGraphState
+    ) -> None:
+        """Record a tool execution failure in state."""
+        current_step = state["current_step"]
+        step_key = f"step_{current_step}"
+
+        if STATE_TOOL_RESULTS not in state:
+            state[STATE_TOOL_RESULTS] = {}
+
+        if step_key not in state[STATE_TOOL_RESULTS]:
+            state[STATE_TOOL_RESULTS][step_key] = []
+
+        state[STATE_TOOL_RESULTS][step_key].append({
+            "tool": tool_name,
+            "args": tool_args,
+            "status": "error",
+            "message": error_message,
         })
