@@ -22,6 +22,3 @@
 | Piano | Titolo | File target |
 |---|---|---|
 | PLN-003 | Test con prompt override del SupervisorAgent | `tests/T006_prompt_override.py` |
-| PLN-007 | Correzioni Triviali Grafo (D2, D3, D8, D9, D10) | `states.py`, `supervisor.py`, `supervisor_agent_prompts.py`, `safercast_agent.py`, `models_agent.py` |
-| PLN-008 | Correzioni Flusso di Controllo (D1, D4, D5, D6) | `states.py`, `multiagent_graph.py`, `supervisor.py`, `final_responder.py` |
-| PLN-009 | Checkpoint Interrupt Mid-Plan (D7) | `multiagent_graph.py`, `supervisor.py`, `functional-spec-graph.md` |

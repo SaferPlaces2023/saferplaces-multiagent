@@ -705,6 +705,14 @@ Entrambi i messaggi sono `SystemMessage`. Molti provider LLM (es. Anthropic) acc
 | `awaiting_user` | `bool` | Reservato per interrupt mid-plan (G007-D6) — attualmente non impostato a `True` da nessun nodo; ramo `→ END` annotato come dead code | — |
 | `clarify_iteration_count` | `int` | SUPERVISOR_PLANNER_CONFIRM (clarify loop) | Ciclo |
 | `plan_aborted` | `bool` | SUPERVISOR_PLANNER_CONFIRM → SUPERVISOR_SUBGRAPH | Ciclo |
+
+### Aggiornamenti mutazioni con `plan_aborted` (PLN-008)
+
+| Nodo | Chiavi scritte | Note |
+|---|---|---|
+| `REQUEST_PARSER` | `parsed_request`, `plan=None`, `tool_results={}`, `additional_context.relevant_layers.is_dirty=True`, tutti i campi agente, **`plan_aborted=False`** | `StateManager.initialize_new_cycle()` |
+| `SUPERVISOR_PLANNER_CONFIRM` | `plan_confirmation`, `replan_request`, `replan_type`, `clarify_iteration_count`, **`plan_aborted=True`** (solo in `_handle_abort`) | Solo se `enabled=True` |
+| `FINAL_RESPONDER` | `messages`, tutti i campi temporanei → `None`, **`plan_aborted=False`** | `StateManager.cleanup_on_final_response()` |
 ```
 
 ---

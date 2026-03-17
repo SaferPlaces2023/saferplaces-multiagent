@@ -36,6 +36,8 @@
 
 **Componente**: `orchestrator/supervisor.py` → subgraph `SUPERVISOR_SUBGRAPH`
 
+**Status**: ✅ **Active** — Implementata con PLN-008 (D1: fix abort → FINAL_RESPONDER, D5: fix clarify ricorsione, D6: dead code)
+
 **Nodi del subgraph**:
 
 ### SupervisorAgent
@@ -107,7 +109,7 @@
 
 **Componente**: `chat/final_responder.py` → nodo `FINAL_RESPONDER`
 
-**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-004)
+**Status**: ✅ **Active** — Implementato con F009 pattern (PLN-004); D4 ricorretto (ordinamento messaggi) con PLN-008
 
 **Comportamento**:
 - Legge: `messages`, `layer_registry`, `tool_results`, `parsed_request`
