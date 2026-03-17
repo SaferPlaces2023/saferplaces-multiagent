@@ -54,6 +54,7 @@ class MABaseGraphState(TypedDict):
     replan_request: AnyMessage
     replan_type: Optional[str]  # "modify" | "reject" | None
     clarify_iteration_count: Optional[int]  # Counter for clarify loops
+    plan_aborted: bool  # True when user aborted operation via SUPERVISOR_PLANNER_CONFIRM
     current_step: Optional[int]
     tool_results: Dict[str, Any]
     awaiting_user: bool
@@ -104,6 +105,7 @@ class StateManager:
         state['replan_request'] = None
         state['replan_type'] = None
         state['clarify_iteration_count'] = 0
+        state['plan_aborted'] = False
         state['awaiting_user'] = False
         
         # Clear previous tool results
@@ -142,7 +144,7 @@ class StateManager:
         # Clear previous invocation state
         state[f'{prefix}_invocation'] = None
         state[f'{prefix}_current_step'] = 0
-        state[f'{prefix}_confirmation'] = None
+        state[f'{prefix}_invocation_confirmation'] = None
         state[f'{prefix}_reinvocation_request'] = None
 
     @staticmethod
@@ -184,6 +186,7 @@ class StateManager:
         state['replan_request'] = None
         state['replan_type'] = None
         state['clarify_iteration_count'] = 0
+        state['plan_aborted'] = False
         
         # Clear tool results (snapshot taken in final responder)
         state['tool_results'] = {}
@@ -207,7 +210,7 @@ class StateManager:
         prefix = agent_type
         state[f'{prefix}_invocation'] = None
         state[f'{prefix}_current_step'] = 0
-        state[f'{prefix}_confirmation'] = None
+        state[f'{prefix}_invocation_confirmation'] = None
         state[f'{prefix}_reinvocation_request'] = None
 
     @staticmethod

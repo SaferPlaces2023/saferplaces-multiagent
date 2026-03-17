@@ -22,6 +22,28 @@ s3://saferplaces.co/SaferPlaces-Agent/dev/user=<USER_ID>/project=<PROJECT_ID>/
 - Avvio: `langgraph dev --config src/saferplaces_multiagent/langgraph.json`
 - Ogni subgraph segue il pattern: `Agent → InvocationConfirm → Executor`
 
+### Aggiungere un nuovo subgraph specializzato
+
+1. Creare i tre nodi con il pattern `{Prefix}Agent`, `{Prefix}InvocationConfirm`, `{Prefix}Executor`
+2. Registrare il nome del subgraph nell'`AGENT_REGISTRY` di `SupervisorAgent` (`ma/orchestrator/supervisor.py`)
+3. Nel grafo principale (`multiagent_graph.py`): aggiungere l'arco `SUPERVISOR_SUBGRAPH → nuovo_subgraph` e il ritorno fisso `nuovo_subgraph → SUPERVISOR_SUBGRAPH`
+4. Nelle chiavi di stato (`common/states.py`): aggiungere `{prefix}_invocation`, `{prefix}_invocation_confirmation`, `{prefix}_reinvocation_request` — vedi convenzione in `coding-standards.instructions.md`
+5. Aggiornare `functional-spec-graph.md` (G001, G002, G003, G009) e `docs/index.md`
+
+### Interrupt points
+
+Usare `interrupt()` (LangGraph) esclusivamente nei nodi `*InvocationConfirm` e `*PlannerConfirm`.
+Il campo `interrupt_type` segue la convenzione `{sostantivo}-{verbo}`:
+
+| `interrupt_type` | Nodo | Condizione |
+|---|---|---|
+| `plan-confirmation` | `SUPERVISOR_PLANNER_CONFIRM` | Piano non vuoto, `enabled=True` |
+| `plan-clarification` | `SUPERVISOR_PLANNER_CONFIRM` | Clarify loop |
+| `invocation-validation` | `{AGENT}_INVOCATION_CONFIRM` | Argomenti non validi |
+| `invocation-confirmation` | `{AGENT}_INVOCATION_CONFIRM` | `enabled=True`, validazione OK |
+
+Per nuovi interrupt: scegliere un `interrupt_type` nel formato `{sostantivo}-{verbo}` e registrarlo in `functional-spec-graph.md` (G008).
+
 ## Flask
 
 - App: `src/saferplaces_multiagent/agent_interface/flask_server/app.py`

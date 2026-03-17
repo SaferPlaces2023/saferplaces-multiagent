@@ -23,9 +23,9 @@ class FinalResponder(MultiAgentNode):
         prompt_context = final_responder_prompts.FinalResponderPrompts.Context.Formatted.stable(state)
 
         invoke_messages = [
-            *state["messages"],
             SystemMessage(content=prompt_response.message),
-            AIMessage(content=prompt_context.message)
+            SystemMessage(content=prompt_context.message),
+            *state["messages"],
         ]
 
         response = self.llm.invoke(invoke_messages)

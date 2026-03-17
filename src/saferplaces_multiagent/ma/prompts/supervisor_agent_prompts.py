@@ -97,7 +97,8 @@ class OrchestratorPrompts:
             @staticmethod
             def stable(state: MABaseGraphState, **kwargs) -> Prompt:
                 parsed_request = state.get("parsed_request", "No parsed request available")
-                additional_context = state.get("plan_additional_context", "No additional context available")
+                layers = state.get("additional_context", {}).get("relevant_layers", {}).get("layers", [])
+                additional_context = str(layers) if layers else "No additional context available"
                 agent_registry_str = str(OrchestratorPrompts.Plan.AGENT_REGISTRY)
 
                 p = {
@@ -329,3 +330,98 @@ class OrchestratorPrompts:
                             )
                         }
                         return Prompt(p)
+
+        class StepCheckpoint:
+            """Prompts for the mid-plan step-checkpoint interrupt in SupervisorRouter."""
+
+            CHECKPOINT_RESPONSE_LABELS = {
+                "continue": (
+                    "User wants to proceed with the next step. "
+                    "Examples: 'ok', 'yes', 'continue', 'proceed', 'go ahead', 'next', 'fine', 'do it'"
+                ),
+                "abort": (
+                    "User wants to stop execution and cancel remaining steps. "
+                    "Examples: 'stop', 'abort', 'cancel', 'halt', 'no', 'enough', 'nevermind', 'that's enough'"
+                ),
+            }
+
+            class CheckpointContext:
+
+                @staticmethod
+                def stable() -> Prompt:
+                    p = {
+                        "title": "StepCheckpointContext",
+                        "description": "context for step-checkpoint classifier",
+                        "command": "",
+                        "message": (
+                            "You are a precise intent classifier. Return only the label name."
+                        ),
+                    }
+                    return Prompt(p)
+
+            class CheckpointClassifier:
+
+                @staticmethod
+                def stable(user_response: str) -> Prompt:
+                    labels = OrchestratorPrompts.Plan.StepCheckpoint.CHECKPOINT_RESPONSE_LABELS
+                    label_names = list(labels.keys())
+                    p = {
+                        "title": "StepCheckpointClassifier",
+                        "description": "zero-shot classifier for step-checkpoint responses",
+                        "command": "",
+                        "message": (
+                            "Classify the user's response into ONE of these categories:\n\n"
+                            f"{json.dumps(labels, indent=2)}\n\n"
+                            f"User response: '{user_response}'\n\n"
+                            f"Return ONLY the label name ({'/'.join(label_names)}) as a single word."
+                        ),
+                    }
+                    return Prompt(p)
+
+            @staticmethod
+            def stable(state: MABaseGraphState, completed_step: dict) -> Prompt:
+                """Generate the step-checkpoint interrupt message shown to the user.
+
+                Args:
+                    state: current graph state.
+                    completed_step: the plan step that just finished
+                        (dict with keys ``agent`` and ``goal``).
+                """
+                plan = state.get("plan", [])
+                current_step_idx = state.get("current_step", 0)
+                tool_results = state.get("tool_results", {})
+
+                completed_agent = completed_step.get("agent", "unknown agent")
+                completed_goal = completed_step.get("goal", "no goal specified")
+
+                # Summarise tool_results for the completed agent key
+                agent_key = "retriever" if "retriever" in completed_agent else "models"
+                agent_results = tool_results.get(agent_key, {})
+                result_summary = str(agent_results) if agent_results else "No result detail available."
+
+                # Remaining steps (from current_step_idx onward — already incremented by executor)
+                remaining = plan[current_step_idx:] if plan else []
+                if remaining:
+                    remaining_lines = "\n".join(
+                        f"  {i + 1}. [{s.get('agent', '?')}] {s.get('goal', '')}"
+                        for i, s in enumerate(remaining)
+                    )
+                    remaining_text = f"Remaining steps ({len(remaining)}):\n{remaining_lines}"
+                else:
+                    remaining_text = "No further steps — this was the last step."
+
+                p = {
+                    "title": "StepCheckpoint",
+                    "description": "mid-plan checkpoint message for the user",
+                    "command": "",
+                    "message": (
+                        f"Step completed: [{completed_agent}] {completed_goal}\n"
+                        f"\n"
+                        f"Result summary:\n{result_summary}\n"
+                        f"\n"
+                        f"{remaining_text}\n"
+                        f"\n"
+                        f"Do you want to continue with the next step, or stop here?"
+                    ),
+                }
+                return Prompt(p)

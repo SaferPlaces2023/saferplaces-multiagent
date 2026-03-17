@@ -15,6 +15,7 @@ Nessun prefisso è condiviso tra categorie diverse.
 | Prefisso | Categoria | Formato | Esempio | File di specifica |
 |---|---|---|---|---|
 | `F` | Feature — scenario, dati, utility | `F###` | `F001`–`F009` | `docs/functional-spec.md` |
+| `G` | Feature — flusso di esecuzione del grafo (nodi, routing, interrupt, difetti) | `G###` | `G001`–`G009` | `docs/functional-spec-graph.md` |
 | `S` | Feature — servizi esterni, API, env vars | `S###` | `S001` | `docs/functional-spec-services.md` |
 | `M` | Feature — mappa, layer geospaziali (Cesium, Leafmap, geospatial ops) | `M###` | `M001` | `docs/functional-spec-map.md` |
 | `PLN` | Piano di implementazione | `PLN-###` | `PLN-001` | `implementations/PLN-###-*.md` |
@@ -23,7 +24,7 @@ Nessun prefisso è condiviso tra categorie diverse.
 
 ### Lettere disponibili per nuovi domini feature
 
-`A` `B` `C` `D` `E` `G` `H` `I` `J` `K` `L` `N` `O` `Q` `R` `U` `V` `W` `X` `Y` `Z`
+`A` `B` `C` `D` `E` `H` `I` `J` `K` `L` `N` `O` `Q` `R` `U` `V` `W` `X` `Y` `Z`
 
 > `P` è **non assegnabile** a feature (collide visivamente con `PLN`).
 > `T` e `SC` sono riservati ai task e criteri interni ai piani.

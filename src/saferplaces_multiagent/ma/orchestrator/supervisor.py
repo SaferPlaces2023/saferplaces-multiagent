@@ -49,9 +49,9 @@ class SupervisorAgent(MultiAgentNode):
         self.llm = _base_llm.with_structured_output(ExecutionPlan)
         self.layer_agent = LayersAgent()
 
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Execute supervisor planning."""
-        return self.run(state)
+    # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+    #     """Execute supervisor planning."""
+    #     return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Main planning logic."""
@@ -72,6 +72,10 @@ class SupervisorAgent(MultiAgentNode):
 
     def _should_skip_planning(self, state: MABaseGraphState) -> bool:
         """Check if planning should be skipped."""
+        # Skip if user aborted — do not re-enter planning after abort
+        if state.get("plan_aborted"):
+            return True
+
         if state.get("awaiting_user"):
             return True
 
@@ -149,14 +153,17 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         if not self.enabled:
             return self._auto_confirm(state)
 
-        return self.run(state)
+        # return self.run(state)
+        return super().__call__(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Interactive plan confirmation with user."""
         plan = state.get("plan", [])
         plan_confirmed = state.get("plan_confirmation")
 
-        if not plan or plan_confirmed != PLAN_PENDING:
+        if not plan:
+            return self._auto_confirm(state)
+        if plan_confirmed != PLAN_PENDING:
             return state
 
         # Request user confirmation
@@ -195,7 +202,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         
         messages = [
             OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.ClassifierContext.stable().to(SystemMessage),
-            OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.ZeroShotClassifier.stable(user_response).to(SystemMessage)
+            OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.ZeroShotClassifier.stable(user_response).to(HumanMessage)
         ]
 
         try:
@@ -247,6 +254,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
     def _handle_abort(state: MABaseGraphState) -> MABaseGraphState:
         """Handle abort: cancel operation entirely."""
         state["plan"] = []
+        state["plan_aborted"] = True
         state["plan_confirmation"] = PLAN_REJECTED
         state["replan_request"] = None
         state["replan_type"] = None
@@ -256,52 +264,53 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         return state
 
     def _handle_clarify(self, state: MABaseGraphState, user_question: str) -> MABaseGraphState:
-        """Handle clarify: explain plan and re-interrupt."""
-        clarify_count = state.get("clarify_iteration_count", 0)
-        
-        # Prevent infinite clarify loops
-        if clarify_count >= self.max_clarify_iterations:
-            print(f"[{self.name}] ⚠ Max clarify iterations reached, auto-accepting")
-            return self._handle_accept(state)
-        
-        state["clarify_iteration_count"] = clarify_count + 1
-        
-        # Generate explanation
-        explanation = self._generate_plan_explanation(state, user_question)
-        print(f"[{self.name}] → Providing explanation...")
-        
-        # New interrupt with explanation
-        interruption = interrupt({
-            "content": f"{explanation}\n\nDo you want to proceed with this plan?",
-            "interrupt_type": "plan-clarification",
-        })
-        
-        new_response = interruption.get("response", "User did not provide any response.")
-        print(f"[{self.name}] → User response after clarification: {new_response}")
-        
-        # Recursive: classify the new response
-        intent = self._classify_user_response(new_response)
-        print(f"[{self.name}] → Classified intent: {intent}")
-        
-        # Dispatch again (recursive resolution)
-        if intent == "accept":
-            state["clarify_iteration_count"] = 0  # Reset counter
-            return self._handle_accept(state)
-        elif intent == "modify":
-            state["clarify_iteration_count"] = 0
-            return self._handle_modify(state, new_response)
-        elif intent == "clarify":
-            # Recursive clarify (will check max iterations next time)
-            return self._handle_clarify(state, new_response)
-        elif intent == "reject":
-            state["clarify_iteration_count"] = 0
-            return self._handle_reject(state, new_response)
-        elif intent == "abort":
-            state["clarify_iteration_count"] = 0
-            return self._handle_abort(state)
-        else:
-            state["clarify_iteration_count"] = 0
-            return self._handle_reject(state, new_response)
+        """Handle clarify: explain plan and re-interrupt using an iterative loop (no recursion)."""
+        current_question = user_question
+
+        while True:
+            clarify_count = state.get("clarify_iteration_count", 0)
+
+            # Prevent infinite clarify loops
+            if clarify_count >= self.max_clarify_iterations:
+                print(f"[{self.name}] ⚠ Max clarify iterations reached, auto-accepting")
+                return self._handle_accept(state)
+
+            state["clarify_iteration_count"] = clarify_count + 1
+
+            # Generate explanation
+            explanation = self._generate_plan_explanation(state, current_question)
+            print(f"[{self.name}] → Providing explanation...")
+
+            # Single interrupt per iteration — no nesting
+            interruption = interrupt({
+                "content": f"{explanation}\n\nDo you want to proceed with this plan?",
+                "interrupt_type": "plan-clarification",
+            })
+
+            new_response = interruption.get("response", "User did not provide any response.")
+            print(f"[{self.name}] → User response after clarification: {new_response}")
+
+            intent = self._classify_user_response(new_response)
+            print(f"[{self.name}] → Classified intent: {intent}")
+
+            if intent == "accept":
+                state["clarify_iteration_count"] = 0
+                return self._handle_accept(state)
+            elif intent == "modify":
+                state["clarify_iteration_count"] = 0
+                return self._handle_modify(state, new_response)
+            elif intent == "clarify":
+                # Continue loop instead of recursing
+                current_question = new_response
+            elif intent == "reject":
+                state["clarify_iteration_count"] = 0
+                return self._handle_reject(state, new_response)
+            elif intent == "abort":
+                state["clarify_iteration_count"] = 0
+                return self._handle_abort(state)
+            else:
+                state["clarify_iteration_count"] = 0
+                return self._handle_reject(state, new_response)
 
     def _generate_plan_explanation(self, state: MABaseGraphState, user_question: str) -> str:
         """Generate explanation of the plan using LLM."""
@@ -349,24 +358,88 @@ class SupervisorPlannerConfirm(MultiAgentNode):
 class SupervisorRouter(MultiAgentNode):
     """Router that determines the next execution node based on plan state."""
 
-    def __init__(self, name: str = NodeNames.SUPERVISOR_ROUTER, log_state: bool = True):
+    def __init__(self, name: str = NodeNames.SUPERVISOR_ROUTER, enabled: bool = False, log_state: bool = True):
         super().__init__(name, log_state)
+        self.enabled = enabled
+        self.llm = _base_llm
         self.layer_agent = LayersAgent()
 
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Execute routing logic."""
-        return self.run(state)
+    # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+    #     """Execute routing logic."""
+    #     return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Determine next node in execution graph."""
         # Check and update context if dirty (happens between any steps)
         self._update_additional_context(state)
-        
+
+        # Optional mid-plan checkpoint interrupt
+        if self.enabled:
+            abort_requested = self._maybe_checkpoint_interrupt(state)
+            if abort_requested:
+                state["supervisor_next_node"] = NodeNames.FINAL_RESPONDER
+                print(f"[{self.name}] × Mid-plan abort by user → FINAL_RESPONDER")
+                return state
+
         # Then determine next node
         next_node = self._determine_next_node(state)
         state["supervisor_next_node"] = next_node
         print(f"[{self.name}] → Next: {next_node}")
         return state
+
+    def _maybe_checkpoint_interrupt(self, state: MABaseGraphState) -> bool:
+        """Emit a step-checkpoint interrupt if mid-plan conditions are met.
+
+        Returns True if the user requested abort, False otherwise.
+        """
+        plan = state.get("plan")
+        current_step = state.get("current_step")
+
+        # Only interrupt after at least one step has been executed and plan is not exhausted
+        if not plan or current_step is None or current_step == 0 or current_step >= len(plan):
+            return False
+
+        # The step that was just completed is at index current_step - 1
+        completed_step = plan[current_step - 1]
+
+        checkpoint_message = OrchestratorPrompts.Plan.StepCheckpoint.stable(state, completed_step)
+        print(f"[{self.name}] → Emitting step-checkpoint interrupt (step {current_step}/{len(plan)})...")
+
+        interruption = interrupt({
+            "content": checkpoint_message.message,
+            "interrupt_type": "step-checkpoint",
+        })
+
+        user_response = interruption.get("response", "")
+        print(f"[{self.name}] → Checkpoint response: {user_response}")
+
+        intent = self._classify_checkpoint_response(user_response)
+        print(f"[{self.name}] → Checkpoint intent: {intent}")
+
+        if intent == "abort":
+            state["plan"] = []
+            state["plan_aborted"] = True
+            return True
+
+        # Default: continue (also used as fallback for unknown intents)
+        return False
+
+    def _classify_checkpoint_response(self, user_response: str) -> str:
+        """Classify user checkpoint response using zero-shot classification."""
+        messages = [
+            OrchestratorPrompts.Plan.StepCheckpoint.CheckpointContext.stable().to(SystemMessage),
+            OrchestratorPrompts.Plan.StepCheckpoint.CheckpointClassifier.stable(user_response).to(HumanMessage),
+        ]
+        try:
+            response = self.llm.invoke(messages)
+            label = response.content.strip().lower()
+            if label in OrchestratorPrompts.Plan.StepCheckpoint.CHECKPOINT_RESPONSE_LABELS:
+                return label
+            print(f"[{self.name}] ⚠ Unknown checkpoint label '{label}', defaulting to 'continue'")
+            return "continue"
+        except Exception as e:
+            print(f"[{self.name}] ⚠ Checkpoint classification error: {e}, defaulting to 'continue'")
+            return "continue"
 
     def _update_additional_context(self, state: MABaseGraphState) -> None:
         """Retrieve relevant layers for planning context."""
@@ -423,8 +496,9 @@ class SupervisorRouter(MultiAgentNode):
     @staticmethod
     def _determine_next_node(state: MABaseGraphState) -> str:
         """Compute the next node based on execution state."""
-        if state.get("awaiting_user"):
-            return "END"
+        # Reserved for future mid-plan user interrupt — currently unused, see G007-D6
+        # if state.get("awaiting_user"):
+        #     return "END"
 
         plan = state.get("plan")
         current_step = state.get("current_step")

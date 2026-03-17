@@ -176,6 +176,32 @@ Ogni livello aggiunge responsabilità e contesto.
 - `StateManager.cleanup_on_final_response(state)` → chiamare in FINAL_RESPONDER
 - **Non** aggiungere chiavi a `MABaseGraphState` senza aggiornare `StateManager`
 
+### StateManager — ciclo di vita completo
+
+`StateManager` in `common/states.py` è l'**unico** punto di scrittura per le transizioni di stato di ciclo.
+Non manipolare direttamente le chiavi di stato che StateManager gestisce.
+
+| Metodo | Quando chiamarlo | Nodo di riferimento |
+|---|---|---|
+| `initialize_new_cycle(state)` | All'inizio di ogni nuovo messaggio utente | `REQUEST_PARSER` |
+| `initialize_specialized_agent_cycle(state, agent_type)` | Prima di instradare verso un subgraph specializzato | `SUPERVISOR_ROUTER` |
+| `mark_agent_step_complete(state, agent_type)` | Al termine dell'esecuzione di ogni tool call | Executor nodes |
+| `cleanup_on_final_response(state)` | Prima di restituire la risposta finale | `FINAL_RESPONDER` |
+
+### Chiavi di stato per agenti specializzati
+
+Per ogni agente specializzato con prefisso `{prefix}` (es. `retriever`, `models`),
+le chiavi di stato **devono** seguire esattamente questa convenzione:
+
+| Chiave | Tipo | Scopo |
+|---|---|---|
+| `{prefix}_invocation` | `AIMessage` | Output LLM con i tool call proposti |
+| `{prefix}_invocation_confirmation` | `str` | `"pending"` / `"accepted"` / `"rejected"` |
+| `{prefix}_reinvocation_request` | `AnyMessage` | Feedback utente per reinvocazione |
+
+**Non usare** varianti come `{prefix}_confirmation` — la chiave corretta è `{prefix}_invocation_confirmation`.
+Usare la variante errata causa un cleanup silenziosamente inefficace (difetto D3 in `docs/functional-spec-graph.md`).
+
 ## Path & LLM
 
 - Usare `utils.normpath()` per compatibilità cross-platform

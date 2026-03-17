@@ -97,9 +97,9 @@ class ModelsAgent(MultiAgentNode):
         self.tools = ToolRegistry().tools
         self.llm = _base_llm.bind_tools(list(self.tools.values()))
 
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Execute models agent."""
-        return self.run(state)
+    # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+    #     """Execute models agent."""
+    #     return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Main models execution logic."""
@@ -150,6 +150,9 @@ class ModelsAgent(MultiAgentNode):
     def _handle_no_tool_calls(invocation: AIMessage, state: MABaseGraphState) -> MABaseGraphState:
         """Handle case where LLM didn't generate tool calls."""
         print("[ModelsAgent] ⚠ No tool calls generated")
+        if state.get("current_step") is None:
+            print("[ModelsAgent] ⚠ current_step is None, initializing to 0")
+            state["current_step"] = 0
         state["current_step"] += 1
         state[STATE_MODELS_INVOCATION] = invocation
         state[STATE_MODELS_CONFIRMATION] = None
@@ -178,9 +181,9 @@ class ModelsInvocationConfirm(MultiAgentNode):
         self.confirmation_handler = ToolInvocationConfirmationHandler()
         self.validation_handler = ToolValidationResponseHandler()
 
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Execute confirmation logic."""
-        return self.run(state)
+    # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+    #     """Execute confirmation logic."""
+    #     return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Main confirmation workflow."""
@@ -412,9 +415,9 @@ class ModelsExecutor(MultiAgentNode):
         super().__init__(name, log_state)
         self.layers_agent = LayersAgent()
 
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Execute tool calls."""
-        return self.run(state)
+    # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+    #     """Execute tool calls."""
+    #     return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Main execution logic."""

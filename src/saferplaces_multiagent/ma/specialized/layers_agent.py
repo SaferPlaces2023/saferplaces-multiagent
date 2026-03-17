@@ -397,8 +397,8 @@ class LayersAgent(MultiAgentNode):
         ]
         self.llm = _base_llm.bind_tools(self.tools)
 
-    def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-        return self.run(state)
+    # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+    #     return self.run(state)
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{self.name}] → Processing layer operations...")
