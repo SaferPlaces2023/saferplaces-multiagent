@@ -9,6 +9,7 @@ class MultiAgentNode():
 
     def _pre_run(self, state: MABaseGraphState) -> MABaseGraphState:
         if self.log_state:
+            self._previous_messages = state.get('messages', []).copy()
             self._compile_log_state_filename(state)
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
@@ -42,7 +43,7 @@ class MultiAgentNode():
                 for mk in ['id', 'content', 'type', 'tool_calls']
                 if hasattr(m, mk) and not is_empty(getattr(m, mk))
             }
-            for m in state.get('messages', []) 
+            for m in state.get('messages', [])[len(self._previous_messages):]
         ]
         state = {
             '__node_name__': self.name,

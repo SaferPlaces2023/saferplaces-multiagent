@@ -255,6 +255,8 @@ class DigitalTwinTool(BaseTool):
         bbox_data = kwargs['bbox']
         if hasattr(bbox_data, 'to_list'):
             bbox_list = bbox_data.to_list()
+        elif isinstance(bbox_data, dict):
+            bbox_list = list(bbox_data.values())
         else:
             bbox_list = bbox_data
 
