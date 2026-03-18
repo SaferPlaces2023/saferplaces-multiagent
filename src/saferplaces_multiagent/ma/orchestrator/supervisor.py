@@ -184,6 +184,9 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         user_response = interruption.get("response", "User did not provide any response.")
         print(f"[{self.name}] → User response: {user_response}")
 
+        # Record user response in conversation history so all downstream LLMs can see it
+        state["messages"] = [HumanMessage(content=user_response)]
+
         # Classify user intent
         intent = self._classify_user_response(user_response)
         print(f"[{self.name}] → Classified intent: {intent}")
@@ -296,6 +299,9 @@ class SupervisorPlannerConfirm(MultiAgentNode):
 
             new_response = interruption.get("response", "User did not provide any response.")
             print(f"[{self.name}] → User response after clarification: {new_response}")
+
+            # Record clarification response in conversation history
+            state["messages"] = [HumanMessage(content=new_response)]
 
             intent = self._classify_user_response(new_response)
             print(f"[{self.name}] → Classified intent: {intent}")

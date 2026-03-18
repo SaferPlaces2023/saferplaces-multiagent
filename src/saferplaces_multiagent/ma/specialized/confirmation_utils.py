@@ -111,6 +111,9 @@ class ToolInvocationConfirmationHandler:
         label = self.classify_user_response(user_response)
         print(f"[ConfirmationHandler] Classification: {label}")
 
+        # Record user response in conversation history so all downstream LLMs can see it
+        state["messages"] = [HumanMessage(content=user_response)]
+
         if label == "accept":
             return self._handle_accept(state, confirmation_key, reinvocation_key)
         elif label == "modify":

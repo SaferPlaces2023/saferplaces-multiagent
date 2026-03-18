@@ -6,7 +6,7 @@ from langgraph.types import interrupt
 
 from saferplaces_multiagent.multiagent_node import MultiAgentNode
 
-from ...common.states import MABaseGraphState, StateManager
+from ...common.states import MABaseGraphState, StateManager, build_nowtime_system_message
 from ...common.utils import _base_llm
 from .tools.dpc_retriever_tool import DPCRetrieverTool
 from .tools.meteoblue_retriever_tool import MeteoblueRetrieverTool
@@ -164,7 +164,16 @@ class DataRetrieverAgent(MultiAgentNode):
 
         human_msg = human_prompt.to(HumanMessage)
 
-        return [system_msg, human_msg]
+        # Prepend actual conversation history so the LLM sees prior directives
+        # (includes interrupt responses added via P1 fix)
+        all_msgs = state.get("messages") or []
+        history = [
+            m for m in all_msgs
+            if isinstance(m, (HumanMessage, AIMessage))
+            and not getattr(m, "tool_calls", None)
+        ][-8:]
+
+        return [system_msg, build_nowtime_system_message(), *history, human_msg]
 
     @staticmethod
     def _has_no_tool_calls(invocation: AIMessage) -> bool:
@@ -177,7 +186,8 @@ class DataRetrieverAgent(MultiAgentNode):
         print("[DataRetrieverAgent] ⚠ No tool calls generated")
         state[STATE_RETRIEVER_INVOCATION] = invocation
         state[STATE_RETRIEVER_CONFIRMATION] = None
-        state["messages"] = [invocation]
+        # Do NOT write invocation to state["messages"]: internal agent reasoning
+        # should not pollute the public conversation history.
         return state
 
     @staticmethod

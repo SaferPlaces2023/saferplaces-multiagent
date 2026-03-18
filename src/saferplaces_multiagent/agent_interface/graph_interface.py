@@ -311,14 +311,10 @@ class GraphInterface:
     ):
         
         def prepare_system_messages():            
-            system_messages = []
-            system_messages.append(GraphStates.build_nowtime_system_message())
-            # if 'layer_registry' in state_updates and state_updates['layer_registry']:
-                # system_messages.append(GraphStates.build_layer_registry_system_message(state_updates.get('layer_registry', [])))
-            # if 'user_drawn_shapes' in state_updates and state_updates['user_drawn_shapes']:
-                # system_messages.append(GraphStates.build_user_drawn_shapes_system_message(state_updates.get('user_drawn_shapes', [])))        
-            return system_messages
-        
+            # nowtime is passed as a dedicated state field (see 'nowtime' key in stream_obj),
+            # so we do NOT inject a SystemMessage here — that would accumulate one copy
+            # per turn in state["messages"] and never get cleaned up.
+            return []
         def build_stream():
             stream_obj = dict()
             if self.interrupt is not None:

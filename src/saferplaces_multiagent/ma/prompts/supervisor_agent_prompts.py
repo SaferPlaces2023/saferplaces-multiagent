@@ -176,6 +176,7 @@ class OrchestratorPrompts:
                 replan_request = state.get("replan_request")
                 user_feedback = replan_request.content if replan_request else "No feedback"
                 conversation_context = _get_conversation_context(state)
+                agent_registry_str = json.dumps(OrchestratorPrompts.Plan.AGENT_REGISTRY, ensure_ascii=False, indent=2)
     
                 message = (
                     f"User requested modifications to the existing plan.\n"
@@ -185,6 +186,8 @@ class OrchestratorPrompts:
                     f"Current plan:\n{current_plan}\n"
                     f"\n"
                     f"User feedback:\n{user_feedback}\n"
+                    f"\n"
+                    f"Agent registry (capabilities, outputs, prerequisites, implicit step rules):\n{agent_registry_str}\n"
                     f"\n"
                     f"Adjust the plan incrementally based on user feedback. "
                     f"Keep what works and is not mentioned, modify only what's explicitly requested. "
@@ -212,24 +215,34 @@ class OrchestratorPrompts:
                 previous_plan = state.get("plan", "No plan available")
                 replan_request = state.get("replan_request")
                 user_feedback = replan_request.content if replan_request else "No feedback"
+                conversation_context = _get_conversation_context(state)
+                agent_registry_str = json.dumps(OrchestratorPrompts.Plan.AGENT_REGISTRY, ensure_ascii=False, indent=2)
     
+                message = (
+                    f"User rejected the entire plan approach and wants a different strategy.\n"
+                    f"\n"
+                    f"Original request:\n{parsed_request}\n"
+                    f"\n"
+                    f"Previous plan (REJECTED):\n{previous_plan}\n"
+                    f"\n"
+                    f"User feedback:\n{user_feedback}\n"
+                    f"\n"
+                    f"Agent registry (capabilities, outputs, prerequisites, implicit step rules):\n{agent_registry_str}\n"
+                    f"\n"
+                    f"Create a completely new plan from scratch. "
+                    f"Take a fundamentally different approach based on user requirements. "
+                    f"Do not repeat the rejected strategy."
+                )
+                if conversation_context:
+                    message = (
+                        f"Conversation context (last messages):\n{conversation_context}\n\n"
+                    ) + message
+
                 p = {
                     "title": "TotalReplanning",
                     "description": "total plan modification",
                     "command": "",
-                    "message": (
-                        f"User rejected the entire plan approach and wants a different strategy.\n"
-                        f"\n"
-                        f"Original request:\n{parsed_request}\n"
-                        f"\n"
-                        f"Previous plan (REJECTED):\n{previous_plan}\n"
-                        f"\n"
-                        f"User feedback:\n{user_feedback}\n"
-                        f"\n"
-                        f"Create a completely new plan from scratch. "
-                        f"Take a fundamentally different approach based on user requirements. "
-                        f"Do not repeat the rejected strategy."
-                    )
+                    "message": message
                 }
                 return Prompt(p)
             

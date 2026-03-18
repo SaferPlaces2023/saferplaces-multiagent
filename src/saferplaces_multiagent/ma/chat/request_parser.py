@@ -6,7 +6,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from ...multiagent_node import MultiAgentNode
-from ...common.states import MABaseGraphState, StateManager
+from ...common.states import MABaseGraphState, StateManager, build_nowtime_system_message
 from ...common.utils import _base_llm
 from ..names import NodeNames, NodeNames
 from ..prompts import request_parser_prompts
@@ -41,6 +41,7 @@ class RequestParser(MultiAgentNode):
         prompt_input = state["messages"][-1].content
         prompt_context = request_parser_prompts.RequestParserPrompts.MainContext.stable()
         invoke_messages = [
+            build_nowtime_system_message(),
             *state["messages"][:-1],
             SystemMessage(content=prompt_context.message),
             HumanMessage(content=prompt_input)
