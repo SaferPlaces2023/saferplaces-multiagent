@@ -1,3 +1,4 @@
+import os
 from flask import Flask
 from flask_cors import CORS
 
@@ -6,8 +7,8 @@ from .. import __GRAPH_REGISTRY__
 def create_app():
     app = Flask(
         __name__,
-        static_folder = '../../../../../saferplaces-multiagent-frontend/public',
-        template_folder = '../../../../../saferplaces-multiagent-frontend/public'
+        static_folder=os.environ.get("FLASK_STATIC_FOLDER"),
+        template_folder=os.environ.get("FLASK_TEMPLATE_FOLDER")
     )
 
     # DOC: Chiave segreta per firmare le sessioni
