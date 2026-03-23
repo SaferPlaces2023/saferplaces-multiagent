@@ -5,36 +5,18 @@ Prompts are structured hierarchically with `stable()` and version variants for A
 """
 
 import json
-from typing import Optional
-
-from langchain_core.messages import HumanMessage, AIMessage
 
 from ...common.states import MABaseGraphState
 
 from . import Prompt
+
+from ...common.utils import get_conversation_context as _get_conversation_context
 
 
 # State key constants (referenced for clarity, imported from safercast_agent.py at runtime)
 STATE_RETRIEVER_INVOCATION = "retriever_invocation"
 STATE_RETRIEVER_CONFIRMATION = "retriever_invocation_confirmation"
 STATE_RETRIEVER_REINVOCATION_REQUEST = "retriever_reinvocation_request"
-
-
-def _get_conversation_context(state: MABaseGraphState, n: int = 5) -> str:
-    """Return last n HumanMessage/AIMessage (no tool_calls) as a readable block."""
-    messages = state.get("messages") or []
-    relevant = [
-        m for m in messages
-        if isinstance(m, HumanMessage)
-        or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
-    ]
-    if not relevant:
-        return ""
-    lines = []
-    for m in relevant[-n:]:
-        role = "User" if isinstance(m, HumanMessage) else "Assistant"
-        lines.append(f"{role}: {m.content}")
-    return "\n".join(lines)
 
 
 class SaferCastPrompts:
@@ -48,27 +30,78 @@ class SaferCastPrompts:
 
         @staticmethod
         def stable() -> Prompt:
-            """Main context prompt — stable version.
-            
-            Instructs the agent on its role and constraints for tool selection.
-            Highlights best-effort inference as the expected and acceptable behavior.
-            """
             p = {
                 "title": "ToolSelectionContext",
-                "description": "system role for data retrieval and tool selection",
+                "description": "system role for data retrieval with tool-specific guides",
                 "command": "",
                 "message": (
-                    "You are a specialized data retrieval agent.\n"
+                    "You are a specialized data retrieval agent for a geospatial AI platform.\n"
                     "\n"
-                    "Your task:\n"
+                    "## Your task\n"
                     "1. Analyze the retrieval goal provided by the orchestrator.\n"
-                    "2. Choose the best tool(s) to retrieve the required data.\n"
+                    "2. Select the correct retrieval tool and provide accurate arguments.\n"
                     "3. Use available context (parsed request, relevant layers, conversation history) "
                     "to infer missing arguments.\n"
-                    "4. When required arguments (e.g., time range, bounding box) are not explicitly stated, "
-                    "propose the most likely values based on context — best-effort inference is expected and acceptable.\n"
+                    "4. When required arguments are not explicitly stated, propose the most likely values "
+                    "based on context — best-effort inference is expected.\n"
                     "\n"
-                    "Rules:\n"
+                    "## Tool: dpc_retriever\n"
+                    "Retrieves radar/meteorological data from Italian Civil Protection (DPC).\n"
+                    "\n"
+                    "Coverage: **Italy only**. Data: **past/recent** — NOT forecasts.\n"
+                    "Data delay: ~10 minutes from real-time.\n"
+                    "Time range: last 7 days maximum.\n"
+                    "\n"
+                    "Required parameters:\n"
+                    "- `product` (required): DPC product code. Common products:\n"
+                    "  • SRI: Surface Rainfall Intensity (mm/h) — most common for \"current rainfall\"\n"
+                    "  • VMI: Vertical Maximum Intensity (max reflectivity, dBZ)\n"
+                    "  • SRT1/3/6/12/24: Cumulative precipitation over 1/3/6/12/24 hours\n"
+                    "  • TEMP: Temperature map\n"
+                    "  • LTG: Lightning strike frequency\n"
+                    "  • IR108: Cloud cover from satellite\n"
+                    "  • HRD: Heavy Rain Detection index\n"
+                    "\n"
+                    "Optional parameters:\n"
+                    "- `bbox`: bounding box {west, south, east, north} in EPSG:4326. Default: all Italy.\n"
+                    "- `time_start`, `time_end`: ISO8601 timestamps. Must be in the past (within 7 days).\n"
+                    "  → If not specified, infer a reasonable recent window (e.g. last 1-6 hours).\n"
+                    "\n"
+                    "## Tool: meteoblue_retriever\n"
+                    "Retrieves weather forecast data from Meteoblue.\n"
+                    "\n"
+                    "Coverage: **global**. Data: **future forecasts** up to 14 days ahead.\n"
+                    "\n"
+                    "Required parameters:\n"
+                    "- `variable` (required): meteorological variable. Common variables:\n"
+                    "  • PRECIPITATION: precipitation amount (mm)\n"
+                    "  • TEMPERATURE: air temperature (°C)\n"
+                    "  • WINDSPEED: wind speed (m/s)\n"
+                    "  • WINDDIRECTION: wind direction (degrees)\n"
+                    "  • RELATIVEHUMIDITY: relative humidity (%)\n"
+                    "  • PRECIPITATION_PROBABILITY: probability of precipitation (%)\n"
+                    "  • FELTTEMPERATURE: apparent temperature (°C)\n"
+                    "  • SEALEVELPRESSURE: sea level pressure (hPa)\n"
+                    "\n"
+                    "Optional parameters:\n"
+                    "- `bbox`: bounding box {west, south, east, north} in EPSG:4326.\n"
+                    "- `time_start`, `time_end`: ISO8601 timestamps. Must be in the future.\n"
+                    "  → If not specified, infer a reasonable forecast window (e.g. next 24 hours).\n"
+                    "\n"
+                    "## Decision guide\n"
+                    "- Goal mentions past/current/historical data + Italy → use **dpc_retriever**\n"
+                    "- Goal mentions forecast/future/prediction → use **meteoblue_retriever**\n"
+                    "- Goal mentions area outside Italy → use **meteoblue_retriever**\n"
+                    "- Goal mentions \"rainfall radar\" or \"radar\" → use **dpc_retriever** (SRI or VMI)\n"
+                    "- Goal mentions specific DPC product (SRI, VMI, SRT*) → use **dpc_retriever**\n"
+                    "\n"
+                    "## Common mistakes to avoid\n"
+                    "- Do NOT use dpc_retriever for areas outside Italy\n"
+                    "- Do NOT use dpc_retriever with future timestamps\n"
+                    "- Do NOT use meteoblue_retriever for past/historical data\n"
+                    "- Do NOT leave bbox empty when the goal specifies a location — infer it\n"
+                    "\n"
+                    "## Rules\n"
                     "- Use only tools from the provided list.\n"
                     "- Do NOT execute commands directly; only propose tool calls.\n"
                     "- Prioritize completeness: always produce a tool call, even with inferred arguments."

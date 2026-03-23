@@ -1,10 +1,8 @@
 """Supervisor agent prompts for orchestration."""
 
-from typing import Optional, TypedDict, Union, List, Dict, Any, Literal
+from typing import List, Dict
 
 import json
-
-from langchain_core.messages import HumanMessage, AIMessage
 
 from ...common.states import MABaseGraphState
 from ..names import NodeNames
@@ -14,22 +12,7 @@ from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
 
 from . import Prompt
 
-
-def _get_conversation_context(state: MABaseGraphState, n: int = 5) -> str:
-    """Return last n HumanMessage/AIMessage (no tool_calls) as a readable block."""
-    messages = state.get("messages") or []
-    relevant = [
-        m for m in messages
-        if isinstance(m, HumanMessage)
-        or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
-    ]
-    if not relevant:
-        return ""
-    lines = []
-    for m in relevant[-n:]:
-        role = "User" if isinstance(m, HumanMessage) else "Assistant"
-        lines.append(f"{role}: {m.content}")
-    return "\n".join(lines)
+from ...common.utils import get_conversation_context as _get_conversation_context
 
 
 class OrchestratorPrompts:
@@ -40,44 +23,112 @@ class OrchestratorPrompts:
         def stable() -> Prompt:
             p = {
                 "title": "OrchestrationContext",
-                "description": "planning skill — multi-step workflow with implicit prerequisites",
+                "description": "planning skill — domain-aware multi-step workflow with operational rules",
                 "command": "",
                 "message": (
-                    "You are an expert multi-step planning agent for a geospatial AI platform.\n"
+                    "You are an expert multi-step planning agent for a geospatial AI platform "
+                    "specialized in flood simulations, meteorological data retrieval, and digital twin generation.\n"
                     "\n"
-                    "## Your planning skill\n"
-                    "You know everything the platform can do. When given a user request, your job is to build\n"
-                    "the complete, correct sequence of steps needed to fulfil it — including intermediate steps\n"
-                    "the user did not explicitly mention but that are logically required.\n"
+                    "## Operational Rules\n"
                     "\n"
-                    "## Reasoning process (apply before producing steps)\n"
+                    "### 1. FLOOD SIMULATION (SaferRain)\n"
+                    "Always requires:\n"
+                    "- A DEM raster for the target area. If no DEM is available in context → add a Digital Twin step FIRST.\n"
+                    "- Rainfall input: a constant value in mm (e.g. 50mm) OR a rainfall raster from context/retrieval.\n"
+                    "- If the user mentions rainfall from radar/forecast and no such raster exists → add a retriever_subgraph step BEFORE.\n"
+                    "Output: water depth raster (WD).\n"
+                    "\n"
+                    "### 2. DIGITAL TWIN (DigitalTwinTool)\n"
+                    "Creates: DEM + buildings + land-use for an area.\n"
+                    "Requires: only a bounding box (bbox).\n"
+                    "Use as FIRST step when no DEM exists for the target area.\n"
+                    "Output: DEM raster + building footprints + land-use layer.\n"
+                    "\n"
+                    "### 3. DPC DATA RETRIEVAL\n"
+                    "Retrieves radar/meteorological data from Italian Civil Protection.\n"
+                    "Coverage: Italy ONLY. Data: past/recent (not forecasts).\n"
+                    "Products: SRI (rainfall intensity mm/h), VMI (max reflectivity), SRT1/3/6/12/24 (cumulative precipitation), \n"
+                    "TEMP (temperature), LTG (lightning), IR108 (cloud cover), HRD (heavy rain detection).\n"
+                    "If the area is outside Italy → DO NOT use DPC, use Meteoblue instead.\n"
+                    "\n"
+                    "### 4. METEOBLUE FORECAST RETRIEVAL\n"
+                    "Retrieves weather forecast data from Meteoblue.\n"
+                    "Coverage: global. Data: FUTURE forecasts up to 14 days.\n"
+                    "Variables: PRECIPITATION, TEMPERATURE, WINDSPEED, WINDDIRECTION, RELATIVEHUMIDITY, etc.\n"
+                    "Use when the user asks for forecasts or future weather data.\n"
+                    "\n"
+                    "## Reasoning Process\n"
                     "1. Identify the final outcome the user wants.\n"
-                    "2. For each agent that could produce that outcome, check its prerequisites.\n"
-                    "   - If a prerequisite (e.g. a DEM layer) is already present in the available layers, skip the step that would create it.\n"
-                    "   - If a prerequisite is missing, add the producing agent as an earlier step.\n"
-                    "3. Repeat recursively until all prerequisites are satisfied or already available.\n"
+                    "2. Check the parsed request for resolved entities, parameters, and implicit requirements.\n"
+                    "3. For each needed capability, check if prerequisites are satisfied by available layers.\n"
+                    "   - If a prerequisite is present → skip the producing step.\n"
+                    "   - If a prerequisite is missing → add the producing agent as an earlier step.\n"
                     "4. Order steps so every agent receives what it needs from the previous step.\n"
-                    "5. Keep steps to the minimum necessary; do not add redundant steps.\n"
+                    "5. Keep steps to the minimum necessary.\n"
+                    "\n"
+                    "## Available Agents\n"
+                    "\n"
+                    "### models_subgraph — Simulations & Geospatial Models\n"
+                    "**Tools**: DigitalTwinTool, SaferRainTool\n"
+                    "**Use when**: creating DEM/buildings/land-use for new areas, or running flood simulations.\n"
+                    "**Prerequisites**: DigitalTwinTool needs only a bbox. SaferRainTool needs a DEM (create via DigitalTwin if missing).\n"
+                    "**Outputs**: DEM raster, building footprints, land-use layer (DigitalTwin); water depth raster (SaferRain).\n"
+                    "\n"
+                    "### retriever_subgraph — Meteorological Data Retrieval\n"
+                    "**Tools**: DPCRetrieverTool (Italy, past data), MeteoblueRetrieverTool (global, forecasts)\n"
+                    "**Use when**: retrieving rainfall radar data, precipitation measurements, weather forecasts.\n"
+                    "**Prerequisites**: none (only needs product/variable, area, and time range).\n"
+                    "**Outputs**: meteorological raster layer (precipitation, temperature, radar data).\n"
                     "\n"
                     "## Rules\n"
-                    "- Use ONLY agents from the provided registry.\n"
-                    "- Do NOT execute tools.\n"
+                    "- Use ONLY agents listed above (models_subgraph or retriever_subgraph).\n"
+                    "- Do NOT execute tools — only plan.\n"
                     "- Do NOT ask the user questions.\n"
-                    "- Return an empty plan for informational queries that require no actions.\n"
+                    "- Return an empty plan (steps: []) for informational queries that need no actions.\n"
+                    "- Include resolved entity information (bbox, parameters) in the goal description when available.\n"
+                    "\n"
+                    "## Common mistakes to avoid\n"
+                    "- Do NOT schedule SaferRain without a DEM. Always check available layers first; "
+                    "if no DEM → add a Digital Twin step before SaferRain.\n"
+                    "- Do NOT use retriever_subgraph to create DEMs or run simulations — it only retrieves data.\n"
+                    "- Do NOT use models_subgraph to retrieve meteorological data — it only creates DEMs and runs simulations.\n"
+                    "- Do NOT use DPC (retriever_subgraph) for areas outside Italy — use Meteoblue instead.\n"
+                    "- Do NOT use DPC for future forecasts — DPC provides only past/recent data.\n"
+                    "- Do NOT use Meteoblue for past/historical data — Meteoblue provides only future forecasts.\n"
+                    "- Do NOT create a Digital Twin if a DEM for the target area already exists in available layers.\n"
+                    "- Do NOT include unnecessary steps — keep the plan minimal.\n"
+                    "- Do NOT duplicate steps for the same goal.\n"
+                    "- Do NOT omit the bbox or key parameters from the goal description — "
+                    "the specialized agent needs them to select tool arguments.\n"
                     "\n"
                     "## Output format\n"
-                    "- steps: ordered list of execution steps (empty list for informational queries)\n"
-                    "  - steps[].agent: agent name (must match registry exactly)\n"
-                    "  - steps[].goal: precise description of what the agent must accomplish in this step\n"
+                    "- steps: ordered list of execution steps\n"
+                    "  - steps[].agent: agent name (models_subgraph or retriever_subgraph)\n"
+                    "  - steps[].goal: DETAILED description that includes:\n"
+                    "    - WHAT the tool will do\n"
+                    "    - WHY it's needed (e.g., 'no DEM available for this area')\n"
+                    "    - KEY PARAMETERS that will be used (bbox, rainfall_mm, product, etc.)\n"
+                    "    - EXPECTED OUTPUT (e.g., 'produces a DEM raster at 30m resolution')\n"
                     "\n"
                     "## Examples\n"
-                    "User asks 'simulate flood for Rome with 50mm' and no DEM exists in context:\n"
-                    '  steps: [{"agent": "models_subgraph", "goal": "Create Digital Twin (DEM + buildings) for Rome bounding box"}, {"agent": "models_subgraph", "goal": "Run SaferRain flood simulation with 50mm rainfall on the generated DEM"}]\n'
-                    "User asks 'simulate flood for Rome with 50mm' and a DEM layer already exists in context:\n"
+                    "User: 'simulate flood for Rome with 50mm' — NO DEM in context:\n"
+                    '  steps: [{"agent": "models_subgraph", "goal": "Create Digital Twin (DEM + buildings) for Rome (bbox ~[12.35, 41.80, 12.60, 41.99])"}, '
+                    '{"agent": "models_subgraph", "goal": "Run SaferRain flood simulation with 50mm constant rainfall on the Rome DEM"}]\n'
+                    "\n"
+                    "User: 'simulate flood for Rome with 50mm' — DEM already exists:\n"
                     '  steps: [{"agent": "models_subgraph", "goal": "Run SaferRain flood simulation with 50mm rainfall using the existing DEM layer"}]\n'
-                    "User asks 'what is the current rainfall in northern Italy' (retrieval only):\n"
+                    "\n"
+                    "User: 'simulate flood using real radar rainfall on existing DEM' — no rainfall raster:\n"
+                    '  steps: [{"agent": "retriever_subgraph", "goal": "Retrieve current SRI rainfall data from DPC for the DEM area"}, '
+                    '{"agent": "models_subgraph", "goal": "Run SaferRain flood simulation using the retrieved rainfall raster and existing DEM"}]\n'
+                    "\n"
+                    "User: 'what is the current rainfall in northern Italy':\n"
                     '  steps: [{"agent": "retriever_subgraph", "goal": "Retrieve current SRI rainfall intensity for northern Italy from DPC"}]\n'
-                    "User asks a general question requiring no execution:\n"
+                    "\n"
+                    "User: 'get precipitation forecast for London':\n"
+                    '  steps: [{"agent": "retriever_subgraph", "goal": "Retrieve Meteoblue PRECIPITATION forecast for London area"}]\n'
+                    "\n"
+                    "User: general question / greeting:\n"
                     "  steps: []"
                 )
             }
@@ -116,6 +167,7 @@ class OrchestratorPrompts:
 
     class Plan:
 
+        # Legacy AGENT_REGISTRY kept for backward compatibility (used by replanning prompts)
         AGENT_REGISTRY = [
             {
                 "name": NodeNames.MODELS_SUBGRAPH,
@@ -135,32 +187,116 @@ class OrchestratorPrompts:
             },
         ]
 
+        @staticmethod
+        def _format_layers_summary(layers: list) -> str:
+            """Build a human-readable summary of available layers for the planner."""
+            if not layers:
+                return "No layers available in the current project."
+            lines = []
+            for l in layers:
+                title = l.get("title", "untitled")
+                ltype = l.get("type", "unknown")
+                desc = l.get("description", "")
+                src = l.get("src", "")
+                meta = l.get("metadata", {})
+                line = f"  • {title} ({ltype})"
+                if desc:
+                    line += f" — {desc}"
+                details = []
+                if meta:
+                    bbox = meta.get("bbox")
+                    if bbox:
+                        details.append(f"bbox={bbox}")
+                    band = meta.get("band")
+                    if band is not None:
+                        details.append(f"band={band}")
+                    res = meta.get("pixelsize") or meta.get("resolution")
+                    if res:
+                        details.append(f"res={res}m")
+                if src:
+                    details.append(f"src={src}")
+                if details:
+                    line += f"\n    [{', '.join(details)}]"
+                lines.append(line)
+            return "\n".join(lines)
+
+        @staticmethod
+        def _format_parsed_request(parsed_request: dict) -> str:
+            """Format the enriched ParsedRequest for the planner prompt."""
+            if not parsed_request:
+                return "No parsed request available."
+            lines = []
+            lines.append(f"Intent: {parsed_request.get('intent', 'N/A')}")
+            lines.append(f"Request type: {parsed_request.get('request_type', 'N/A')}")
+
+            entities = parsed_request.get("entities", [])
+            if entities:
+                lines.append("Entities:")
+                for e in entities:
+                    resolved = e.get("resolved")
+                    res_str = f" → {resolved}" if resolved else ""
+                    lines.append(f"  • {e.get('name', '?')} ({e.get('entity_type', '?')}){res_str}")
+
+            params = parsed_request.get("parameters", {})
+            if params:
+                lines.append("Parameters:")
+                for k, v in params.items():
+                    lines.append(f"  • {k}: {v}")
+
+            implicit = parsed_request.get("implicit_requirements", [])
+            if implicit:
+                lines.append("Implicit requirements:")
+                for r in implicit:
+                    lines.append(f"  • {r}")
+
+            lines.append(f"Raw text: {parsed_request.get('raw_text', '')}")
+            return "\n".join(lines)
+
+        @staticmethod
+        def _format_plan_readable(plan: list) -> str:
+            """Format a plan (list of step dicts) into human-readable text."""
+            if not plan:
+                return "No plan generated."
+            _AGENT_LABELS = {
+                "models_subgraph": "Simulazione/Modelli",
+                "retriever_subgraph": "Recupero Dati",
+            }
+            lines = []
+            for i, step in enumerate(plan, 1):
+                agent = step.get("agent", "unknown")
+                goal = step.get("goal", "no goal")
+                label = _AGENT_LABELS.get(agent, agent)
+                lines.append(f"  Step {i}: [{label}] {goal}")
+            return "\n".join(lines)
+
         class CreatePlan:
 
             @staticmethod
             def stable(state: MABaseGraphState, **kwargs) -> Prompt:
-                parsed_request = state.get("parsed_request", "No parsed request available")
+                parsed_request = state.get("parsed_request", {})
+                # Priority: relevant_layers (processed) > layer_registry (raw)
                 layers = state.get("additional_context", {}).get("relevant_layers", {}).get("layers", [])
-                additional_context = str(layers) if layers else "No additional context available"
-                agent_registry_str = json.dumps(OrchestratorPrompts.Plan.AGENT_REGISTRY, ensure_ascii=False, indent=2)
+                if not layers:
+                    layers = state.get("layer_registry", [])
                 conversation_context = _get_conversation_context(state)
 
+                # Use human-readable formatting instead of JSON dumps
+                request_text = OrchestratorPrompts.Plan._format_parsed_request(parsed_request)
+                layers_text = OrchestratorPrompts.Plan._format_layers_summary(layers)
+
                 message = (
-                    f"Parsed request:\n{parsed_request}\n"
+                    f"## Parsed Request\n{request_text}\n"
                     f"\n"
-                    f"Available layers in context (check prerequisites before adding implicit steps):\n{additional_context}\n"
-                    f"\n"
-                    f"Agent registry (capabilities, outputs, prerequisites, implicit step rules):\n{agent_registry_str}"
+                    f"## Available Layers\n{layers_text}\n"
                 )
                 if conversation_context:
                     message = (
-                        f"Conversation context (last messages):\n{conversation_context}\n"
-                        f"\n"
+                        f"## Conversation Context\n{conversation_context}\n\n"
                     ) + message
 
                 p = {
                     "title": "PlanCreation",
-                    "description": "basic plan creation",
+                    "description": "structured plan creation with enriched request",
                     "command": "",
                     "message": message
                 }
@@ -171,31 +307,42 @@ class OrchestratorPrompts:
             @staticmethod
             def stable(state: MABaseGraphState, **kwargs) -> Prompt:
                 """Generate prompt for incremental modifications (modify label)."""
-                parsed_request = state.get("parsed_request", "No parsed request available")
-                current_plan = state.get("plan", "No plan available")
+                parsed_request = state.get("parsed_request", {})
+                current_plan = state.get("plan", [])
                 replan_request = state.get("replan_request")
                 user_feedback = replan_request.content if replan_request else "No feedback"
                 conversation_context = _get_conversation_context(state)
-                agent_registry_str = json.dumps(OrchestratorPrompts.Plan.AGENT_REGISTRY, ensure_ascii=False, indent=2)
-    
+
+                request_text = OrchestratorPrompts.Plan._format_parsed_request(parsed_request)
+                plan_text = OrchestratorPrompts.Plan._format_plan_readable(current_plan)
+
+                # Include available layers for reference
+                layers = state.get("additional_context", {}).get("relevant_layers", {}).get("layers", [])
+                if not layers:
+                    layers = state.get("layer_registry", [])
+                layers_text = OrchestratorPrompts.Plan._format_layers_summary(layers)
+
                 message = (
                     f"User requested modifications to the existing plan.\n"
                     f"\n"
-                    f"Original request:\n{parsed_request}\n"
+                    f"## Original Request\n{request_text}\n"
                     f"\n"
-                    f"Current plan:\n{current_plan}\n"
+                    f"## Current Plan\n{plan_text}\n"
                     f"\n"
-                    f"User feedback:\n{user_feedback}\n"
+                    f"## Available Layers\n{layers_text}\n"
                     f"\n"
-                    f"Agent registry (capabilities, outputs, prerequisites, implicit step rules):\n{agent_registry_str}\n"
+                    f"## User Feedback\n{user_feedback}\n"
                     f"\n"
-                    f"Adjust the plan incrementally based on user feedback. "
-                    f"Keep what works and is not mentioned, modify only what's explicitly requested. "
-                    f"Minimize disruption to the overall approach."
+                    f"Adjust the plan incrementally based on user feedback:\n"
+                    f"- Keep steps not mentioned by the user\n"
+                    f"- Modify only what's explicitly requested\n"
+                    f"- If the user refers to a step by number, map it to the correct step above\n"
+                    f"- If the user mentions using an existing layer, check Available Layers\n"
+                    f"- Minimize disruption to the overall approach"
                 )
                 if conversation_context:
                     message = (
-                        f"Conversation context (last messages):\n{conversation_context}\n\n"
+                        f"## Conversation Context\n{conversation_context}\n\n"
                     ) + message
 
                 p = {
@@ -211,23 +358,31 @@ class OrchestratorPrompts:
             @staticmethod
             def stable(state: MABaseGraphState, **kwargs) -> Prompt:
                 """Generate prompt for total replanning (reject label)."""
-                parsed_request = state.get("parsed_request", "No parsed request available")
-                previous_plan = state.get("plan", "No plan available")
+                parsed_request = state.get("parsed_request", {})
+                previous_plan = state.get("plan", [])
                 replan_request = state.get("replan_request")
                 user_feedback = replan_request.content if replan_request else "No feedback"
                 conversation_context = _get_conversation_context(state)
-                agent_registry_str = json.dumps(OrchestratorPrompts.Plan.AGENT_REGISTRY, ensure_ascii=False, indent=2)
-    
+
+                request_text = OrchestratorPrompts.Plan._format_parsed_request(parsed_request)
+                plan_text = OrchestratorPrompts.Plan._format_plan_readable(previous_plan)
+
+                # Include available layers for the new plan
+                layers = state.get("additional_context", {}).get("relevant_layers", {}).get("layers", [])
+                if not layers:
+                    layers = state.get("layer_registry", [])
+                layers_text = OrchestratorPrompts.Plan._format_layers_summary(layers)
+
                 message = (
                     f"User rejected the entire plan approach and wants a different strategy.\n"
                     f"\n"
-                    f"Original request:\n{parsed_request}\n"
+                    f"## Original Request\n{request_text}\n"
                     f"\n"
-                    f"Previous plan (REJECTED):\n{previous_plan}\n"
+                    f"## Previous Plan (REJECTED)\n{plan_text}\n"
                     f"\n"
-                    f"User feedback:\n{user_feedback}\n"
+                    f"## Available Layers\n{layers_text}\n"
                     f"\n"
-                    f"Agent registry (capabilities, outputs, prerequisites, implicit step rules):\n{agent_registry_str}\n"
+                    f"## User Feedback\n{user_feedback}\n"
                     f"\n"
                     f"Create a completely new plan from scratch. "
                     f"Take a fundamentally different approach based on user requirements. "
@@ -235,7 +390,7 @@ class OrchestratorPrompts:
                 )
                 if conversation_context:
                     message = (
-                        f"Conversation context (last messages):\n{conversation_context}\n\n"
+                        f"## Conversation Context\n{conversation_context}\n\n"
                     ) + message
 
                 p = {

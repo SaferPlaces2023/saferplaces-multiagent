@@ -519,6 +519,31 @@ def disable_langchain_warnings():
 
 
 
+# REGION: [Prompt helpers]
+
+def get_conversation_context(state, n: int = 5) -> str:
+    """Return last n HumanMessage/AIMessage (no tool_calls) as a readable block.
+
+    Shared helper used by all prompt modules to avoid triplication.
+    """
+    from langchain_core.messages import HumanMessage as _HM, AIMessage as _AI
+    messages = state.get("messages") or []
+    relevant = [
+        m for m in messages
+        if isinstance(m, _HM)
+        or (isinstance(m, _AI) and not getattr(m, "tool_calls", None))
+    ]
+    if not relevant:
+        return ""
+    lines = []
+    for m in relevant[-n:]:
+        role = "User" if isinstance(m, _HM) else "Assistant"
+        lines.append(f"{role}: {m.content}")
+    return "\n".join(lines)
+
+# ENDREGION: [Prompt helpers]
+
+
 # REGION: [LLM and Tools]
 
 _base_llm = ChatOpenAI(model="gpt-4o-mini")

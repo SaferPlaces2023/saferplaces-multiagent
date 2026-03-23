@@ -8,6 +8,7 @@ from langgraph.types import interrupt
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
+from ...common.response_classifier import ResponseClassifier
 
 
 # ============================================================================
@@ -56,9 +57,10 @@ class ToolValidationResponseHandler:
     def __init__(self, llm=None):
         """Initialize handler with LLM for classification."""
         self.llm = llm or _base_llm
+        self._classifier = ResponseClassifier(self.llm)
 
     def classify_validation_response(self, response: str, is_post_clarification: bool = False) -> str:
-        """Classify user intent for validation failures using zero-shot classification.
+        """Classify user intent for validation failures using hybrid classification.
         
         Args:
             response: User's response string
@@ -67,34 +69,7 @@ class ToolValidationResponseHandler:
         Returns:
             Label name: "provide_corrections" | "clarify_requirements" | "auto_correct" | "acknowledge" | "skip_tool" | "abort"
         """
-        classification_prompt = (
-            f"Classify the user's response into one of these categories:\n\n"
-            f"{json.dumps(VALIDATION_RESPONSE_LABELS, indent=2)}\n\n"
-            f"User response: {response}\n\n"
-        )
-        
-        if is_post_clarification:
-            classification_prompt += (
-                f"Note: This is a response AFTER receiving an explanation. "
-                f"If the user acknowledges (e.g., 'ok', 'yes'), classify as 'acknowledge'.\n\n"
-            )
-        
-        classification_prompt += "Return ONLY the label name (provide_corrections/clarify_requirements/auto_correct/acknowledge/skip_tool/abort)."
-
-        messages = [
-            SystemMessage(content="You are a precise intent classifier."),
-            HumanMessage(content=classification_prompt)
-        ]
-
-        llm_response = self.llm.invoke(messages)
-        label = llm_response.content.strip().lower()
-
-        # Validate label
-        if label not in VALIDATION_RESPONSE_LABELS:
-            print(f"⚠ Unknown classification '{label}', defaulting to 'auto_correct'")
-            return "auto_correct"
-
-        return label
+        return self._classifier.classify_validation_response(response, is_post_clarification)
 
     def process_validation_response(
         self,
@@ -123,7 +98,7 @@ class ToolValidationResponseHandler:
             Updated state
         """
         # Check if this is a post-clarification response
-        is_post_clarification = state.get("validation_clarify_iteration_count", 0) > 0
+        is_post_clarification = state.get("interaction_count", 0) > 0
         
         label = self.classify_validation_response(user_response, is_post_clarification)
         print(f"[ValidationHandler] Classification: {label} (post_clarification={is_post_clarification})")
@@ -139,8 +114,6 @@ class ToolValidationResponseHandler:
                 max_clarify_iterations
             )
         elif label == "auto_correct" or label == "acknowledge":
-            # Reset clarify counter when proceeding
-            state["validation_clarify_iteration_count"] = 0
             return self._handle_validation_auto_correct(
                 state, validation_errors, confirmation_key, reinvocation_key, current_step_key
             )
@@ -168,9 +141,6 @@ class ToolValidationResponseHandler:
         state[current_step_key] = 0
         state[confirmation_key] = INVOCATION_REJECTED
         state[reinvocation_key] = HumanMessage(content=user_response)
-        
-        # Reset clarify counter
-        state["validation_clarify_iteration_count"] = 0
         
         print("[ValidationHandler] → Provide corrections: preparing re-invocation with user fixes")
         return state
@@ -201,16 +171,17 @@ class ToolValidationResponseHandler:
         Returns:
             Updated state (may recursively call process_validation_response)
         """
-        # Check iteration count
-        clarify_count = state.get("validation_clarify_iteration_count", 0)
-        if clarify_count >= max_iterations:
-            print(f"[ValidationHandler] ⚠ Max clarify iterations ({max_iterations}) reached, forcing provide_corrections")
+        # Check interaction budget
+        interaction_count = state.get("interaction_count", 0)
+        interaction_budget = state.get("interaction_budget", 8)
+        if interaction_count >= interaction_budget:
+            print(f"[ValidationHandler] ⚠ Interaction budget exhausted ({interaction_budget}), forcing provide_corrections")
             return self._handle_validation_provide_corrections(
                 state, confirmation_key, reinvocation_key, current_step_key, user_question
             )
 
-        state["validation_clarify_iteration_count"] = clarify_count + 1
-        print(f"[ValidationHandler] → Clarify iteration {state['validation_clarify_iteration_count']}/{max_iterations}")
+        state["interaction_count"] = interaction_count + 1
+        print(f"[ValidationHandler] → Clarify iteration (interaction {state['interaction_count']}/{interaction_budget})")
 
         # Generate explanation
         explanation = self._generate_validation_explanation(validation_errors, user_question)
@@ -289,9 +260,6 @@ class ToolValidationResponseHandler:
         state[invocation_key] = invocation
         state[current_step_key] = 0
         
-        # Reset clarify counter
-        state["validation_clarify_iteration_count"] = 0
-        
         print(f"[ValidationHandler] → Skip tool: removed {len(failed_tool_names)} tool(s), proceeding with {len(remaining_tool_calls)}")
         return state
 
@@ -314,9 +282,6 @@ class ToolValidationResponseHandler:
             # Mark as complete if no more steps
             state["current_step"] = plan_length
             print("[ValidationHandler] ⚠ Abort: no more steps, marking as complete")
-        
-        # Reset clarify counter
-        state["validation_clarify_iteration_count"] = 0
         
         return state
 

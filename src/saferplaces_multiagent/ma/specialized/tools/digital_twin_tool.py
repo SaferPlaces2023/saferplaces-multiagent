@@ -1,9 +1,10 @@
 import os
+import json
 import requests
 
 from typing import Any, ClassVar, Dict, List, Optional
 
-from pydantic import BaseModel, Field, AliasChoices
+from pydantic import BaseModel, Field, AliasChoices, PrivateAttr
 
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
@@ -11,6 +12,7 @@ from langchain_core.callbacks import CallbackManagerForToolRun
 from ....common import utils, s3_utils
 from ....common import names as N
 from ....common import base_models
+from ....common.states import MABaseGraphState
 
 
 # ============================================================================
@@ -23,7 +25,8 @@ STATUS_ERROR = "error"
 
 # Default datasets/providers
 DEFAULT_BUILDING_DATASET = "OSM/BUILDINGS"
-DEFAULT_LANDUSE_DATASET = "ESA/WorldCover/v100"
+DEFAULT_LANDUSE_DATASET = "ESA/WORLDCOVER/V100"
+DEFAULT_PIXELSIZE = 5
 
 
 # ============================================================================
@@ -126,7 +129,8 @@ class DigitalTwinInputSchema(BaseModel):
         title="DEM pixel size (meters, optional)",
         description=(
             "Target ground sampling distance (meters) for the DEM/DTM resampling. "
-            "Must be > 0. If None, output uses the native resolution of the DEM dataset."
+            "Must be > 0. If None, output uses the native resolution of the DEM dataset. "
+            f"Default: {DEFAULT_PIXELSIZE}"
         ),
         examples=[None, 1, 2, 5, 10, 30],
         validation_alias=AliasChoices("pixelsize", "pixel_size", "resolution", "res", "gsd"),
@@ -163,6 +167,8 @@ class DigitalTwinTool(BaseTool):
         "Ideal as the first step when base geospatial layers are needed for a new area before running simulations."
     )
 
+    _graph_state: Optional[MABaseGraphState] = PrivateAttr(default=None)
+
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the DigitalTwin Tool."""
         super().__init__(
@@ -193,6 +199,10 @@ class DigitalTwinTool(BaseTool):
             **kwargs
         )
 
+    def _set_graph_state(self, graph_state: MABaseGraphState) -> None:
+        """Set the graph state for the tool."""
+        self._graph_state = graph_state
+
     def _set_args_validation_rules(self) -> Dict[str, List]:
         """Define validation rules for tool arguments."""
         return {
@@ -221,9 +231,11 @@ class DigitalTwinTool(BaseTool):
         def infer_pixelsize(**kwargs: Any) -> Optional[float]:
             """
             Infer appropriate pixel size based on AOI extent.
-            Returns None to use native resolution.
+            Apply clip forcing between 5 and 10 meters
             """
-            return None
+            pixelsize = kwargs.get('pixelsize')
+            return max(5, min(10, pixelsize)) if pixelsize is not None else DEFAULT_PIXELSIZE
+
 
         return {
             'dem_dataset': infer_dem_dataset,
@@ -265,7 +277,19 @@ class DigitalTwinTool(BaseTool):
             'dem_dataset': kwargs.get('dem_dataset'),
             'building_dataset': kwargs.get('building_dataset', DEFAULT_BUILDING_DATASET),
             'landuse_dataset': kwargs.get('landuse_dataset', DEFAULT_LANDUSE_DATASET),
-            'pixelsize': kwargs.get('pixelsize'),
+            'pixelsize': kwargs.get('pixelsize', DEFAULT_PIXELSIZE),
+        }
+        
+        exec_uuid = utils.b64uuid()
+        bucket_name, bucket_key = s3_utils.get_bucket_name_key(s3_utils._STATE_BUCKET_(self._graph_state))
+        automatic_args = {
+            "workspace": bucket_name,
+            "project": bucket_key,
+            "file_dem": f'dem-{exec_uuid}.tif',
+            "file_building": f'building-{exec_uuid}.shp',
+            "file_landuse": f'landuse-{exec_uuid}.tif',
+            "file_dem_building": f'dem_building-{exec_uuid}.tif',
+            "file_seamask": f'seamask-{exec_uuid}.tif',
         }
 
         credentials = {
@@ -280,6 +304,7 @@ class DigitalTwinTool(BaseTool):
         return {
             'inputs': {
                 **tool_args,
+                **automatic_args,
                 **credentials,
                 **debug_config
             }
@@ -296,12 +321,15 @@ class DigitalTwinTool(BaseTool):
             API response object
         """
         api_url = self._get_api_url()
+
+        print(f"Calling DigitalTwin API at {api_url} with payload:\n", json.dumps(payload, indent=2))
+
         return requests.post(api_url, json=payload)
 
     @staticmethod
     def _get_api_url() -> str:
         """Get DigitalTwin API URL from environment."""
-        api_root = os.getenv('SAFERPLACES_API_ROOT', 'http://localhost:5000')
+        api_root = os.getenv('SAFERPLACES_API_ROOT', 'http://localhost:5001')
         return f"{api_root}/processes/digital-twin-process/execution"
 
     def _process_api_response(
@@ -328,14 +356,34 @@ class DigitalTwinTool(BaseTool):
 
         # Parse response JSON
         response_data = api_response.json()
+        print(f"DigitalTwin API response:\n", json.dumps(response_data, indent=2))
+
+        # DOC: Example structure
+        # {
+        #     "id": "digital-twin-process",
+        #     "files": { 
+        #          "building": "s3-uri", 
+        #          "dem": "s3-uri", 
+        #          "dem_building": "s3-uri", 
+        #          "landuse": "s3-uri", 
+        #          "seamask": "s3-uri" 
+        #     }
+        # }
 
         # Validate response structure (expect outputs with dem, buildings, landuse, seamask)
-        required_fields = ['dem', 'buildings', 'landuse', 'seamask']
+        required_fields = ['id', 'files']
         missing_fields = [field for field in required_fields if field not in response_data]
         if missing_fields:
             return {
                 'status': STATUS_ERROR,
                 'message': f"Unexpected API response format. Missing fields: {missing_fields}"
+            }
+        required_files = ['dem', 'building', 'dem_building', 'landuse', 'seamask']
+        missing_files = [file for file in required_files if file not in response_data.get('files', {})]
+        if missing_files:
+            return {
+                'status': STATUS_ERROR,
+                'message': f"Unexpected API response format. Missing files: {missing_files}"
             }
 
         # Return success response
@@ -345,10 +393,10 @@ class DigitalTwinTool(BaseTool):
                 'data': response_data,
                 'description': (
                     f"Digital Twin created successfully.\n"
-                    f"• DEM: {response_data.get('dem')}\n"
-                    f"• Buildings: {response_data.get('buildings')}\n"
-                    f"• Land-use: {response_data.get('landuse')}\n"
-                    f"• Sea mask: {response_data.get('seamask')}"
+                    f"• DEM: {response_data['files'].get('dem')}\n"
+                    f"• Building: {response_data['files'].get('building')}\n"
+                    f"• Land-use: {response_data['files'].get('landuse')}\n"
+                    f"• Sea mask: {response_data['files'].get('seamask')}"
                 )
             }
         }

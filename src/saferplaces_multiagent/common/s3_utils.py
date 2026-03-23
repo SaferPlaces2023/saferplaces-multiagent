@@ -15,13 +15,6 @@ from . import utils
 _BASE_BUCKET_ = f's3://{os.getenv("BUCKET_NAME", "saferplaces.co")}/{os.getenv("BUCKET_OUT_DIR", "SaferPlaces-Agent/dev")}'
 _STATE_BUCKET_ = lambda state: f"{_BASE_BUCKET_}/user={state['user_id']}/project={state['project_id']}"
 
-_BASE_BUCKET = None
-def setup_base_bucket(user_id, project_id):
-    # !!!: This logic does not handle the simultaneous use of the agent from different users or projects. 
-    # TODO: Use GraphState property (when needed in other modules and not here)
-    global _BASE_BUCKET
-    _BASE_BUCKET = f's3://{os.getenv("BUCKET_NAME", "saferplaces.co")}/{os.getenv("BUCKET_OUT_DIR", "SaferPlaces-Agent/dev")}/user={user_id}/project={project_id}'
-
 
 def iss3(filename):
     """
@@ -52,6 +45,15 @@ def get_bucket_name_key(uri):
     else:
         bucket_name, key_name = None, uri
     return bucket_name, key_name
+
+
+def get_bucket_name(uri):
+    bucket_name, _ = get_bucket_name_key(uri)
+    return bucket_name
+
+def get_bucket_key(uri):
+    _, key_name = get_bucket_name_key(uri)
+    return key_name
 
 
 def etag(filename, client=None, chunk_size=8 * 1024 * 1024):

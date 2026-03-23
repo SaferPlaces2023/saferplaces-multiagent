@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 import ast
+import datetime
 
 from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, BaseMessage
@@ -10,6 +11,10 @@ from saferplaces_multiagent.multiagent_node import MultiAgentNode
 from ...common.states import MABaseGraphState, StateManager
 from ...common import utils
 from ...common.utils import _base_llm
+from ...common.response_classifier import ResponseClassifier
+from ...common.templates import format_plan_confirmation
+from ...common.context_builder import ContextBuilder, PlanningContext
+from ...common.execution_narrative import ExecutionNarrative
 from ..names import NodeNames
 from ..prompts.supervisor_agent_prompts import OrchestratorPrompts
 from ..specialized.layers_agent import LayersAgent
@@ -21,10 +26,12 @@ from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
 # Constants & Data Models
 # ============================================================================
 
-# Plan confirmation states
+# Plan confirmation states (semantic enum values from PlanConfirmationStatus)
 PLAN_PENDING = "pending"
 PLAN_ACCEPTED = "accepted"
 PLAN_REJECTED = "rejected"
+PLAN_MODIFY = "modify"
+PLAN_ABORTED = "aborted"
 
 
 class ExecutionPlan(BaseModel):
@@ -72,8 +79,8 @@ class SupervisorAgent(MultiAgentNode):
 
     def _should_skip_planning(self, state: MABaseGraphState) -> bool:
         """Check if planning should be skipped."""
-        # Skip if user aborted — do not re-enter planning after abort
-        if state.get("plan_aborted"):
+        # Skip if user aborted
+        if state.get("plan_confirmation") == PLAN_ABORTED:
             return True
 
         # Skip if already planning a confirmed step
@@ -90,7 +97,7 @@ class SupervisorAgent(MultiAgentNode):
         return False
 
     def _generate_plan(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Generate execution plan using LLM."""
+        """Generate execution plan using LLM with enriched context (§1 PLN-013)."""
 
         # Guard: abort if replan loop has exceeded the maximum allowed iterations
         MAX_REPLAN_ITERATIONS = 5
@@ -98,14 +105,26 @@ class SupervisorAgent(MultiAgentNode):
         if replan_count >= MAX_REPLAN_ITERATIONS:
             print(f"[{self.name}] ⚠ Max replan iterations ({MAX_REPLAN_ITERATIONS}) reached — aborting")
             state["plan"] = []
-            state["plan_aborted"] = True
-            state["plan_confirmation"] = PLAN_ACCEPTED
+            state["plan_confirmation"] = PLAN_ABORTED
             state["supervisor_next_node"] = NodeNames.FINAL_RESPONDER
             return state
 
+        # PHASE 1: Build enriched PlanningContext (§1 Context Enrichment Pipeline)
+        planning_context = ContextBuilder.build(state)
+        context_str = ContextBuilder.format_for_prompt(planning_context)
+        
+        # PHASE 2: Initialize ExecutionNarrative if first planning (§3 Execution Narrative)
+        if not state.get("execution_narrative"):
+            state["execution_narrative"] = ExecutionNarrative()
+        
+        narrative = state["execution_narrative"]
+        narrative.started_at = datetime.datetime.utcnow().isoformat()
+        narrative.request_summary = planning_context.request_intent
+        narrative.request_type = planning_context.request_type
+
         main_prompt = OrchestratorPrompts.MainContext.stable().to(SystemMessage)
         
-        if state.get("plan_confirmation") == PLAN_REJECTED:
+        if state.get("plan_confirmation") in (PLAN_REJECTED, PLAN_MODIFY):
             replan_type = state.get("replan_type")
             if replan_type == "modify":
                 planning_prompt = OrchestratorPrompts.Plan.IncrementalReplanning.stable(state).to(HumanMessage)
@@ -116,8 +135,12 @@ class SupervisorAgent(MultiAgentNode):
         else:
             planning_prompt = OrchestratorPrompts.Plan.CreatePlan.stable(state).to(HumanMessage)
 
+        # Add enriched context to messages
+        context_message = HumanMessage(content=context_str)
+        
         messages = [
             main_prompt,
+            context_message,
             planning_prompt
         ]
 
@@ -136,11 +159,15 @@ class SupervisorAgent(MultiAgentNode):
         state["plan_confirmation"] = PLAN_PENDING
         state["replan_request"] = None
         state["replan_type"] = None  # Reset after use
-
-        # Log plan
+        
+        # Update narrative with plan summary
+        narrative.total_steps = len(validated_steps)
         if validated_steps:
+            steps_desc = "; ".join([f"{s.get('agent')}: {s.get('goal')}" for s in validated_steps])
+            narrative.plan_summary = steps_desc
             print(f"[{self.name}] ✓ Plan: {len(validated_steps)} steps")
         else:
+            narrative.plan_summary = "(Nessun'azione necessaria)"
             print(f"[{self.name}] ✓ No action needed (general query)")
 
         return state
@@ -153,7 +180,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         super().__init__(name, log_state)
         self.enabled = enabled
         self.llm = _base_llm
-        self.max_clarify_iterations = 3  # Prevent infinite clarify loops
+        self._classifier = ResponseClassifier(self.llm)
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
         """Execute confirmation logic."""
@@ -208,26 +235,8 @@ class SupervisorPlannerConfirm(MultiAgentNode):
             return self._handle_reject(state, user_response)
 
     def _classify_user_response(self, user_response: str) -> str:
-        """Classify user intent using zero-shot classification."""
-        
-        messages = [
-            OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.ClassifierContext.stable().to(SystemMessage),
-            OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.ZeroShotClassifier.stable(user_response).to(HumanMessage)
-        ]
-
-        try:
-            response = self.llm.invoke(messages)
-            label = response.content.strip().lower()
-            
-            # Validate label
-            if label in OrchestratorPrompts.Plan.PlanConfirmation.ResponseClassifier.PLAN_RESPONSE_LABELS.keys():
-                return label
-            else:
-                print(f"[{self.name}] ⚠ Invalid label '{label}', defaulting to 'reject'")
-                return "reject"
-        except Exception as e:
-            print(f"[{self.name}] ⚠ Classification error: {e}, defaulting to 'reject'")
-            return "reject"
+        """Classify user intent using hybrid rule-based + LLM classification."""
+        return self._classifier.classify_plan_response(user_response)
 
     @staticmethod
     def _handle_accept(state: MABaseGraphState) -> MABaseGraphState:
@@ -241,7 +250,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
     @staticmethod
     def _handle_modify(state: MABaseGraphState, user_response: str) -> MABaseGraphState:
         """Handle modify: incremental replanning."""
-        state["plan_confirmation"] = PLAN_REJECTED
+        state["plan_confirmation"] = PLAN_MODIFY
         state["replan_request"] = HumanMessage(content=user_response)
         state["replan_type"] = "modify"
         state["current_step"] = None
@@ -264,8 +273,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
     def _handle_abort(state: MABaseGraphState) -> MABaseGraphState:
         """Handle abort: cancel operation entirely."""
         state["plan"] = []
-        state["plan_aborted"] = True
-        state["plan_confirmation"] = PLAN_REJECTED
+        state["plan_confirmation"] = PLAN_ABORTED
         state["replan_request"] = None
         state["replan_type"] = None
         state["current_step"] = None
@@ -278,14 +286,15 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         current_question = user_question
 
         while True:
-            clarify_count = state.get("clarify_iteration_count", 0)
+            interaction_count = state.get("interaction_count", 0)
+            interaction_budget = state.get("interaction_budget", 8)
 
-            # Prevent infinite clarify loops
-            if clarify_count >= self.max_clarify_iterations:
-                print(f"[{self.name}] ⚠ Max clarify iterations reached, auto-accepting")
+            # Prevent exceeding interaction budget
+            if interaction_count >= interaction_budget:
+                print(f"[{self.name}] ⚠ Interaction budget exhausted ({interaction_budget}), auto-accepting")
                 return self._handle_accept(state)
 
-            state["clarify_iteration_count"] = clarify_count + 1
+            state["interaction_count"] = interaction_count + 1
 
             # Generate explanation
             explanation = self._generate_plan_explanation(state, current_question)
@@ -307,22 +316,17 @@ class SupervisorPlannerConfirm(MultiAgentNode):
             print(f"[{self.name}] → Classified intent: {intent}")
 
             if intent == "accept":
-                state["clarify_iteration_count"] = 0
                 return self._handle_accept(state)
             elif intent == "modify":
-                state["clarify_iteration_count"] = 0
                 return self._handle_modify(state, new_response)
             elif intent == "clarify":
                 # Continue loop instead of recursing
                 current_question = new_response
             elif intent == "reject":
-                state["clarify_iteration_count"] = 0
                 return self._handle_reject(state, new_response)
             elif intent == "abort":
-                state["clarify_iteration_count"] = 0
                 return self._handle_abort(state)
             else:
-                state["clarify_iteration_count"] = 0
                 return self._handle_reject(state, new_response)
 
     def _generate_plan_explanation(self, state: MABaseGraphState, user_question: str) -> str:
@@ -344,20 +348,9 @@ class SupervisorPlannerConfirm(MultiAgentNode):
             return "I apologize, I couldn't generate the explanation. Please accept or reject the plan."
 
     def _generate_confirmation_message(self, state: MABaseGraphState, plan: List[Dict]) -> str:
-        """Generate a clear, schematic confirmation message using LLM."""
-        
-        messages = [
-            OrchestratorPrompts.Plan.PlanConfirmation.RequestMainContext.stable().to(SystemMessage),
-            OrchestratorPrompts.Plan.PlanConfirmation.RequestGenerator.stable(state).to(HumanMessage),
-        ]
-        
-        try:
-            response = self.llm.invoke(messages)
-            return response.content.strip()
-        except Exception as e:
-            print(f"[{self.name}] ⚠ Message generation error: {e}")
-            plan_text = OrchestratorPrompts.Plan.PlanConfirmation.RequestGenerator._format_plan_for_display(plan)
-            return f"Do you want to proceed with the following plan?\n{plan_text}"
+        """Generate a structured confirmation message using deterministic template."""
+        parsed_request = state.get("parsed_request", {})
+        return format_plan_confirmation(plan, parsed_request=parsed_request)
 
     @staticmethod
     def _auto_confirm(state: MABaseGraphState) -> MABaseGraphState:
@@ -375,6 +368,7 @@ class SupervisorRouter(MultiAgentNode):
         super().__init__(name, log_state)
         self.enabled = enabled
         self.llm = _base_llm
+        self._classifier = ResponseClassifier(self.llm)
         self.layer_agent = LayersAgent()
 
     # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
@@ -383,6 +377,14 @@ class SupervisorRouter(MultiAgentNode):
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Determine next node in execution graph."""
+        # PHASE 1: Update execution narrative (§3 PLN-013)
+        # If we're here with plan + current_step > 0, the previous step just completed
+        plan = state.get("plan", [])
+        current_step = state.get("current_step", 0)
+        
+        if plan and current_step > 0:
+            self._update_execution_narrative(state, plan, current_step - 1)
+        
         # Check and update context if dirty (happens between any steps)
         self._update_additional_context(state)
 
@@ -399,6 +401,38 @@ class SupervisorRouter(MultiAgentNode):
         state["supervisor_next_node"] = next_node
         print(f"[{self.name}] → Next: {next_node}")
         return state
+
+    def _update_execution_narrative(self, state: MABaseGraphState, plan: List[dict], completed_step_index: int) -> None:
+        """
+        Update execution narrative with results from a completed step (§3 PLN-013).
+        
+        Called after a specialized agent finishes execution.
+        Records the step result, any layers created, and tool results.
+        """
+        narrative = state.get("execution_narrative")
+        if not narrative:
+            return
+        
+        step = plan[completed_step_index]
+        agent_name = step.get("agent", "unknown")
+        goal = step.get("goal", "")
+        
+        # Try to extract tool results for this step
+        tool_results = state.get("tool_results", {})
+        step_result_key = f"step_{completed_step_index}"
+        
+        from ...common.execution_narrative import StepResult
+        
+        step_result = StepResult(
+            step_index=completed_step_index,
+            agent=agent_name,
+            goal=goal,
+            outcome="success" if step_result_key in tool_results else "pending",
+            output_summary=f"Step completato: {agent_name}"
+        )
+        
+        narrative.add_step_result(step_result)
+        print(f"[{self.name}] ✓ Narrative updated: {agent_name}")
 
     def _maybe_checkpoint_interrupt(self, state: MABaseGraphState) -> bool:
         """Emit a step-checkpoint interrupt if mid-plan conditions are met.
@@ -431,28 +465,20 @@ class SupervisorRouter(MultiAgentNode):
 
         if intent == "abort":
             state["plan"] = []
-            state["plan_aborted"] = True
+            state["plan_confirmation"] = PLAN_ABORTED
             return True
 
         # Default: continue (also used as fallback for unknown intents)
         return False
 
     def _classify_checkpoint_response(self, user_response: str) -> str:
-        """Classify user checkpoint response using zero-shot classification."""
-        messages = [
-            OrchestratorPrompts.Plan.StepCheckpoint.CheckpointContext.stable().to(SystemMessage),
-            OrchestratorPrompts.Plan.StepCheckpoint.CheckpointClassifier.stable(user_response).to(HumanMessage),
-        ]
-        try:
-            response = self.llm.invoke(messages)
-            label = response.content.strip().lower()
-            if label in OrchestratorPrompts.Plan.StepCheckpoint.CHECKPOINT_RESPONSE_LABELS:
-                return label
-            print(f"[{self.name}] ⚠ Unknown checkpoint label '{label}', defaulting to 'continue'")
-            return "continue"
-        except Exception as e:
-            print(f"[{self.name}] ⚠ Checkpoint classification error: {e}, defaulting to 'continue'")
-            return "continue"
+        """Classify user checkpoint response using hybrid classifier."""
+        # Checkpoint has only two outcomes: continue or abort
+        # Use plan classifier and map non-abort labels to "continue"
+        label = self._classifier.classify_plan_response(user_response)
+        if label == "abort":
+            return "abort"
+        return "continue"
 
     def _update_additional_context(self, state: MABaseGraphState) -> None:
         """Retrieve relevant layers for planning context."""
@@ -488,6 +514,10 @@ class SupervisorRouter(MultiAgentNode):
             utils.try_default(lambda: ast.literal_eval(lr.content), lr.content) if isinstance(lr, BaseMessage) else lr
             for lr in (layer_agent_state.get("layers_response") or [])
         ]
+
+        # Minipatch - don't know why but sometimes relevant_layers_list is encapsulated in a list
+        if isinstance(relevant_layers_list, list) and len(relevant_layers_list) == 1 and isinstance(relevant_layers_list[0], list):
+            relevant_layers_list = relevant_layers_list[0]
 
         state["additional_context"] = {
             "relevant_layers": {

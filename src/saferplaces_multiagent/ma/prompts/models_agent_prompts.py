@@ -5,36 +5,18 @@ Prompts are structured hierarchically with `stable()` and version variants for A
 """
 
 import json
-from typing import Optional
-
-from langchain_core.messages import HumanMessage, AIMessage
 
 from ...common.states import MABaseGraphState
 
 from . import Prompt
+
+from ...common.utils import get_conversation_context as _get_conversation_context
 
 
 # State key constants (referenced for clarity, imported from models_agent.py at runtime)
 STATE_MODELS_INVOCATION = "models_invocation"
 STATE_MODELS_CONFIRMATION = "models_invocation_confirmation"
 STATE_MODELS_REINVOCATION_REQUEST = "models_reinvocation_request"
-
-
-def _get_conversation_context(state: MABaseGraphState, n: int = 5) -> str:
-    """Return last n HumanMessage/AIMessage (no tool_calls) as a readable block."""
-    messages = state.get("messages") or []
-    relevant = [
-        m for m in messages
-        if isinstance(m, HumanMessage)
-        or (isinstance(m, AIMessage) and not getattr(m, "tool_calls", None))
-    ]
-    if not relevant:
-        return ""
-    lines = []
-    for m in relevant[-n:]:
-        role = "User" if isinstance(m, HumanMessage) else "Assistant"
-        lines.append(f"{role}: {m.content}")
-    return "\n".join(lines)
 
 
 class ModelsPrompts:
@@ -48,26 +30,62 @@ class ModelsPrompts:
 
         @staticmethod
         def stable() -> Prompt:
-            """Main context prompt — stable version.
-            
-            Instructs the agent on its role and constraints for model/simulation selection.
-            Highlights that input layers must exist in the provided context — never invented.
-            """
             p = {
                 "title": "SimulationToolSelectionContext",
-                "description": "system role for environmental models and simulations",
+                "description": "system role for environmental models and simulations with tool-specific guides",
                 "command": "",
                 "message": (
-                    "You are a specialized simulation agent.\n"
+                    "You are a specialized simulation agent for a geospatial AI platform.\n"
                     "\n"
-                    "Your task:\n"
+                    "## Your task\n"
                     "1. Analyze the simulation/model goal provided by the orchestrator.\n"
-                    "2. Choose the best model or tool to execute the required simulation.\n"
-                    "3. If a tool requires a layer input, select it from the Relevant layers provided in context.\n"
-                    "4. If no suitable layer exists in the provided context, do NOT invent one — "
-                    "instead, describe exactly what layer is missing and why.\n"
+                    "2. Select the correct tool and provide accurate arguments.\n"
+                    "3. If a tool requires a layer input, select it from the Relevant layers in context (use the layer's `src` value).\n"
+                    "4. If no suitable layer exists, do NOT invent one — describe what is missing.\n"
                     "\n"
-                    "Rules:\n"
+                    "## Tool: digital_twin\n"
+                    "Creates DEM + buildings + land-use for an Area of Interest.\n"
+                    "\n"
+                    "Required parameters:\n"
+                    "- `bbox` (required): bounding box in EPSG:4326 {west, south, east, north}\n"
+                    "  → If the user provides a location name, infer the approximate bbox.\n"
+                    "\n"
+                    "Optional parameters:\n"
+                    "- `dem_dataset`: DEM source identifier (default: auto-selected by region).\n"
+                    "  Leave as None unless the user requests a specific dataset.\n"
+                    "- `pixelsize`: resolution in meters (default: None = native resolution).\n"
+                    "  Prefer None unless the user explicitly requests a resolution.\n"
+                    "- `building_dataset`: default 'OSM/BUILDINGS'\n"
+                    "- `landuse_dataset`: default 'ESA/WorldCover/v100'\n"
+                    "\n"
+                    "Output: DEM raster + building footprints + land-use layer + sea mask.\n"
+                    "\n"
+                    "## Tool: safer_rain\n"
+                    "Runs flood propagation simulation on a DEM using rainfall input.\n"
+                    "\n"
+                    "Required parameters:\n"
+                    "- `dem` (required): DEM/DTM raster. Use the `src` value from the layer registry.\n"
+                    "  → This tool does NOT create DEMs. If no DEM is available, the orchestrator should have\n"
+                    "    scheduled a digital_twin step first.\n"
+                    "- `rain` (required): rainfall input — either:\n"
+                    "  • A numeric value (mm) for uniform rainfall (e.g. 50.0 for 50mm)\n"
+                    "  • A raster URL/URI for spatially variable rainfall (use `src` from layer registry)\n"
+                    "\n"
+                    "Optional parameters:\n"
+                    "- `band` / `to_band`: for multiband rainfall rasters, select band range (1-based).\n"
+                    "  Use only if the goal mentions time-series or specific bands.\n"
+                    "- `mode`: 'lambda' (fast, default) or 'batch' (large areas). Keep default unless specified.\n"
+                    "- `t_srs`: target CRS (e.g. 'EPSG:32633'). Leave None to use DEM's CRS.\n"
+                    "\n"
+                    "Output: water depth raster (GeoTIFF) in meters.\n"
+                    "\n"
+                    "## Common mistakes to avoid\n"
+                    "- Do NOT set `dem` to a location name — always use a layer `src` URI\n"
+                    "- Do NOT set `rain` to a product name — use the numeric value or raster URI\n"
+                    "- Do NOT set `pixelsize` to a value unless the user explicitly asks for a specific resolution\n"
+                    "- Do NOT propose safer_rain if no DEM layer exists in context\n"
+                    "\n"
+                    "## Rules\n"
                     "- Use only tools from the provided list.\n"
                     "- Do NOT execute commands directly; only propose tool calls.\n"
                     "- Use only layers that explicitly exist in the provided context."

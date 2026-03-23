@@ -11,7 +11,7 @@ from saferplaces_multiagent.multiagent_node import MultiAgentNode
 
 from ...common.states import MABaseGraphState
 from ...common.base_models import Layer
-from ...common.utils import _base_llm
+from ...common.utils import _base_llm, vector_specs, raster_specs, raster_ts_specs
 # from ...nodes.base.base_models import Layer
 from ..names import NodeNames
 
@@ -57,6 +57,7 @@ class LayersRegistry:
         if isinstance(layer, dict):
             layer = Layer(**layer)
         if layer.title in self._layers:
+            # TODO: should add a progressive to title instaed of raising an error
             raise KeyError(f"Layer '{layer.title}' already exists")
         self._layers[layer.title] = layer
         return layer

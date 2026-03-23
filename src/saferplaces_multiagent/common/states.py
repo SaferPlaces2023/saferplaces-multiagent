@@ -20,7 +20,8 @@ from pydantic import BaseModel, Field
 from dataclasses import dataclass, asdict
 
 from . import utils
-from .base_models import AdditionalContext, ConfirmationState
+from .base_models import AdditionalContext, ConfirmationState, PlanConfirmationStatus
+from .execution_narrative import ExecutionNarrative
 
 
 # DOC: This is a basic state that will be used by all nodes in the graph. It ha one key: "messages" : list[AnyMessage]
@@ -50,14 +51,17 @@ class MABaseGraphState(TypedDict):
     supervisor_next_node: str
     # DOC: handling user-agent conversation flow 
     plan: Optional[List[dict]]
-    plan_confirmation: ConfirmationState
+    plan_confirmation: PlanConfirmationStatus
     replan_request: AnyMessage
     replan_type: Optional[str]  # "modify" | "reject" | None
-    clarify_iteration_count: Optional[int]  # Counter for clarify loops
-    plan_aborted: bool  # True when user aborted operation via SUPERVISOR_PLANNER_CONFIRM
+    interaction_count: Optional[int]  # Unified counter for all human-in-the-loop interactions in a cycle
+    interaction_budget: Optional[int]  # Max allowed interactions per cycle (default: 8)
     current_step: Optional[int]
     tool_results: Dict[str, Any]
     replan_iteration_count: Optional[int]  # Incremented on every modify/reject cycle; reset on new request
+    
+    # DOC: Execution narrative — structured story of execution (§3 of PLN-013)
+    execution_narrative: Optional[ExecutionNarrative] = None
 
     # DOC: specialized retriever agent state
     retriever_invocation: AIMessage
@@ -104,9 +108,12 @@ class StateManager:
         state['plan_confirmation'] = None
         state['replan_request'] = None
         state['replan_type'] = None
-        state['clarify_iteration_count'] = 0
-        state['plan_aborted'] = False
+        state['interaction_count'] = 0
+        state['interaction_budget'] = state.get('interaction_budget') or 8
         state['replan_iteration_count'] = 0
+        
+        # Initialize execution narrative for new cycle
+        state['execution_narrative'] = ExecutionNarrative()
         
         # Clear previous tool results
         state['tool_results'] = {}
@@ -185,12 +192,15 @@ class StateManager:
         state['plan_confirmation'] = None
         state['replan_request'] = None
         state['replan_type'] = None
-        state['clarify_iteration_count'] = 0
-        state['plan_aborted'] = False
+        state['interaction_count'] = 0
         state['replan_iteration_count'] = 0
         
         # Clear tool results (snapshot taken in final responder)
         state['tool_results'] = {}
+        
+        # Keep execution narrative for logging/debugging but mark as finalized
+        if state.get('execution_narrative'):
+            state['execution_narrative'].completed_at = datetime.datetime.utcnow().isoformat()
         
         # Clear specialized agent state
         StateManager._clear_specialized_agent_state(state, 'retriever')

@@ -144,7 +144,6 @@ class GraphInterface:
         if cesium_handler is True:
             self.cesium_handler = CesiumHandler(user_id=self.user_id, project_id=self.project_id)
 
-        s3_utils.setup_base_bucket(user_id=self.user_id, project_id=self.project_id)
         self.restore_state()
              
             

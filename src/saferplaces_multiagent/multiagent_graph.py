@@ -1,6 +1,4 @@
 
-from turtle import pd
-
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 
@@ -33,7 +31,7 @@ def build_supervisor_subgraph():
     # supervisor_builder.add_edge(supervisor_planner_confirm.name, supervisor_router.name)
     supervisor_builder.add_conditional_edges(
         supervisor_planner_confirm.name,
-        lambda state: state.get('plan_confirmation') == 'rejected' and not state.get('plan_aborted'),
+        lambda state: state.get('plan_confirmation') in ('modify', 'rejected'),
         {
             True: supervisor_agent.name,
             False: supervisor_router.name,

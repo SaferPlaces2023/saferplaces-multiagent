@@ -17,9 +17,16 @@ def get_now_naive() -> datetime.datetime:
     return datetime.datetime.now(tz=timezone.utc).replace(tzinfo=None)
 
 
-def parse_dt_naive(time_str: str) -> datetime.datetime:
+def parse_dt_naive(dt: str | datetime.datetime) -> datetime.datetime:
     """Parse ISO datetime string to naive datetime."""
-    return datetime.datetime.fromisoformat(time_str).replace(tzinfo=None)
+    if isinstance(dt, datetime.datetime):
+        return dt.replace(tzinfo=None)
+    return datetime.datetime.fromisoformat(dt).replace(tzinfo=None)
+
+def to_iso_naive(dt: str | datetime.datetime) -> str:
+    """Convert naive datetime to ISO format string without timezone info."""
+    dt = parse_dt_naive(dt)
+    return dt.isoformat().rstrip('Z')
 
 
 def apply_delay_cap(dt: datetime.datetime, delay_minutes: int) -> datetime.datetime:
@@ -62,8 +69,9 @@ def infer_time_start(
         
         if delay_minutes > 0:
             value = apply_delay_cap(value, delay_minutes)
-        
-        return value.isoformat()
+
+        value = to_iso_naive(value)
+        return value
     
     return inferrer
 
@@ -95,7 +103,9 @@ def infer_time_end(
         if delay_minutes > 0:
             value = apply_delay_cap(value, delay_minutes)
         
-        return value.isoformat()
+        value = to_iso_naive(value)
+        return value
+
     
     return inferrer
 
@@ -134,6 +144,8 @@ def infer_time_range(
         if delay_minutes > 0:
             end = apply_delay_cap(end, delay_minutes)
         
-        return [start.isoformat(), end.isoformat()]
+        start_iso = to_iso_naive(start)
+        end_iso = to_iso_naive(end)
+        return [start_iso, end_iso]
     
     return inferrer

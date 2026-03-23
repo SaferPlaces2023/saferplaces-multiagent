@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 import json
+import datetime
 
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
 from langgraph.types import interrupt
@@ -8,6 +9,8 @@ from saferplaces_multiagent.multiagent_node import MultiAgentNode
 
 from ...common.states import MABaseGraphState, StateManager, build_nowtime_system_message
 from ...common.utils import _base_llm
+from ...common.templates import format_tool_confirmation, format_validation_errors
+from ...common.execution_narrative import StepResult, LayerSummary
 from .tools.dpc_retriever_tool import DPCRetrieverTool
 from .tools.meteoblue_retriever_tool import MeteoblueRetrieverTool
 from .layers_agent import LayersAgent
@@ -321,34 +324,8 @@ class DataRetrieverInvocationConfirm(MultiAgentNode):
         return user_validation_state
 
     def _generate_validation_error_message(self, validation_errors: Dict[str, Dict[str, str]]) -> str:
-        """Generate a clear, schematic error message for validation failures using LLM."""
-        # Format validation errors as a readable list
-        errors_text = self._format_validation_errors_for_display(validation_errors)
-        
-        error_prompt = (
-            f"Generate a clear, concise message to inform the user about the following parameter validation failures.\n"
-            f"The message should be:\n"
-            f"- Schematic and organized (use bullet points or numbering)\n"
-            f"- Concise but complete, explaining what's wrong with each parameter\n"
-            f"- End with a clear invitation to revise and correct the parameters\n"
-            f"\n"
-            f"Validation errors:\n{errors_text}\n"
-            f"\n"
-            f"Generate the error message (be brief and well-formatted):"
-        )
-        
-        messages = [
-            SystemMessage(content="You are a helpful assistant that communicates parameter validation errors clearly and concisely."),
-            HumanMessage(content=error_prompt)
-        ]
-        
-        try:
-            response = _base_llm.invoke(messages)
-            return response.content.strip()
-        except Exception as e:
-            print(f"[{self.name}] ⚠ Error message generation failed: {e}")
-            # Fallback to formatted errors
-            return f"Some parameters are invalid and need to be corrected:\n{errors_text}"
+        """Generate a structured error message for validation failures using deterministic template."""
+        return format_validation_errors(validation_errors)
 
     @staticmethod
     def _format_validation_errors_for_display(validation_errors: Dict[str, Dict[str, str]]) -> str:
@@ -361,34 +338,8 @@ class DataRetrieverInvocationConfirm(MultiAgentNode):
         return "\n".join(formatted_errors)
 
     def _generate_tool_confirmation_message(self, tool_calls: List[ToolCall]) -> str:
-        """Generate a clear, schematic confirmation message for tool calls using LLM."""
-        # Format tool calls as a readable list
-        tool_calls_text = self._format_tool_calls_for_display(tool_calls)
-        
-        confirmation_prompt = (
-            f"Generate a clear, concise confirmation message for the user about executing the following tools.\n"
-            f"The message should be:\n"
-            f"- Schematic and organized (use bullet points or numbering)\n"
-            f"- Concise but complete\n"
-            f"- End with a clear question asking if they want to proceed\n"
-            f"\n"
-            f"Tools to execute:\n{tool_calls_text}\n"
-            f"\n"
-            f"Generate the confirmation message (be brief and well-formatted):"
-        )
-        
-        messages = [
-            SystemMessage(content="You are a helpful assistant that communicates tool invocations clearly and concisely."),
-            HumanMessage(content=confirmation_prompt)
-        ]
-        
-        try:
-            response = _base_llm.invoke(messages)
-            return response.content.strip()
-        except Exception as e:
-            print(f"[{self.name}] ⚠ Message generation error: {e}")
-            # Fallback to formatted tool calls
-            return f"Do you want to proceed with the following tool calls?\n{tool_calls_text}"
+        """Generate a structured confirmation message for tool calls using deterministic template."""
+        return format_tool_confirmation(tool_calls)
 
     @staticmethod
     def _format_tool_calls_for_display(tool_calls: List[ToolCall]) -> str:
@@ -500,6 +451,19 @@ class DataRetrieverExecutor(MultiAgentNode):
             error_msg = f"Tool '{tool_name}' raised an exception: {exc}"
             print(f"[{self.name}] ⚠ {error_msg}")
             self._record_tool_error(tool_name, tool_args, str(exc), state)
+            
+            # Update narrative with error (§3 PLN-013)
+            if state.get("execution_narrative"):
+                from ...common.execution_narrative import StepError
+                step_error = StepError(
+                    step_index=state.get("current_step", 0),
+                    tool_name=tool_name,
+                    error_type="execution_exception",
+                    message=str(exc),
+                    recovery_suggestion=f"Verifica i parametri del tool {tool_name}"
+                )
+                state["execution_narrative"].add_error(step_error)
+            
             return ToolMessage(content=error_msg, tool_call_id=tool_call["id"])
 
         # Format tool response message (tool-specific)
@@ -510,6 +474,22 @@ class DataRetrieverExecutor(MultiAgentNode):
 
         # Record result (common logic)
         self._record_tool_result(tool_name, tool_args, result, state)
+        
+        # Update narrative with step result (§3 PLN-013)
+        if state.get("execution_narrative"):
+            plan = state.get("plan", [])
+            step_index = state.get("current_step", 0)
+            step_goal = plan[step_index].get("goal") if step_index < len(plan) else ""
+            
+            step_result = StepResult(
+                step_index=step_index,
+                agent=NodeNames.RETRIEVER_SUBGRAPH,
+                goal=step_goal,
+                tool_name=tool_name,
+                outcome="success" if result.get("status") == "success" else "partial",
+                output_summary=f"Dati recuperati: {tool_name} ({tool_args.get('product') or tool_args.get('variable', 'N/A')})"
+            )
+            state["execution_narrative"].add_step_result(step_result)
 
         return tool_response
 

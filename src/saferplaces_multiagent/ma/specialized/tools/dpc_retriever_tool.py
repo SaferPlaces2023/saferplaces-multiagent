@@ -1,13 +1,14 @@
 import os
+import json
 import requests
 from datetime import datetime, timezone
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
 
-from ....common import s3_utils
+from ....common import utils, s3_utils
 from ....common import names as N
 from ....common import base_models
 from . import _validators as validators
@@ -51,8 +52,15 @@ DPC_ITALY_BBOX = {
 DPC_DATA_DELAY_MINUTES = 10  # DPC data has 10-minute delay
 
 # Response status constants
+STATUS_OK = "OK"
 STATUS_SUCCESS = "success"
 STATUS_ERROR = "error"
+
+DPC_PRODUCT_TO_SURFACE_TYPE = {
+    'SRI': 'rain-timeseries',
+    'TEMP': 'temperature-timeseries',
+    # Add more mappings as needed
+}
 
 
 # ============================================================================
@@ -96,26 +104,33 @@ class DPCRetrieverSchema(BaseModel):
     )
 
     # Geographic extent (preferred)
-    bbox: Optional[base_models.BBox] = Field(
-        default=None,
-        title="Bounding Box",
-        description=f"Geographic extent in EPSG:4326 (west, south, east, north). Default coverage: {DPC_ITALY_BBOX}",
-        examples=[{"west": 10.0, "south": 44.0, "east": 12.0, "north": 46.0}]
+    bbox: base_models.BBox = Field(
+        ...,
+        title="Area of Interest (bbox)",
+        description=(
+            f"Geographic extent in EPSG:4326 using named keys west, south, east, north. Default coverage: {DPC_ITALY_BBOX}"
+            "It defines the Area of Interest (AOI) for the Digital Twin. "
+            "Example: {'west': 9.05, 'south': 45.42, 'east': 9.25, 'north': 45.55}"
+        ),
+        examples=[
+            {"west": 9.05, "south": 45.42, "east": 9.25, "north": 45.55},
+        ],
+        validation_alias=AliasChoices("bbox", "aoi", "extent", "bounds", "bounding_box"),
     )
 
-    # Geographic extent (fallback)
-    lat_range: Optional[List[float]] = Field(
-        default=None,
-        title="Latitude Range",
-        description="Latitude range [min, max] in EPSG:4326. Prefer using bbox.",
-        examples=[[44.0, 46.0]]
-    )
-    long_range: Optional[List[float]] = Field(
-        default=None,
-        title="Longitude Range",
-        description="Longitude range [min, max] in EPSG:4326. Prefer using bbox.",
-        examples=[[10.0, 12.0]]
-    )
+    # # Geographic extent (fallback)
+    # lat_range: Optional[List[float]] = Field(
+    #     default=None,
+    #     title="Latitude Range",
+    #     description="Latitude range [min, max] in EPSG:4326. Prefer using bbox.",
+    #     examples=[[44.0, 46.0]]
+    # )
+    # long_range: Optional[List[float]] = Field(
+    #     default=None,
+    #     title="Longitude Range",
+    #     description="Longitude range [min, max] in EPSG:4326. Prefer using bbox.",
+    #     examples=[[10.0, 12.0]]
+    # )
 
     # Time window (preferred)
     time_start: Optional[str] = Field(
@@ -132,12 +147,12 @@ class DPCRetrieverSchema(BaseModel):
     )
 
     # Time window (fallback)
-    time_range: Optional[List[str]] = Field(
-        default=None,
-        title="Time Range",
-        description="Time range [start, end] in ISO8601. Prefer using time_start/time_end.",
-        examples=[["2025-09-18T00:00:00Z", "2025-09-18T06:00:00Z"]]
-    )
+    # time_range: Optional[List[str]] = Field(
+    #     default=None,
+    #     title="Time Range",
+    #     description="Time range [start, end] in ISO8601. Prefer using time_start/time_end.",
+    #     examples=[["2025-09-18T00:00:00Z", "2025-09-18T06:00:00Z"]]
+    # )
 
     # Output options
     out: Optional[str] = Field(
@@ -248,13 +263,13 @@ class DPCRetrieverTool(BaseTool):
         def infer_bucket_destination(**kwargs: Any) -> str:
             """Infer default S3 bucket destination."""
             state = kwargs.pop('_graph_state', None)
-            return f"{s3_utils._STATE_BUCKET_(state)}/dpc-out"
+            return f"{s3_utils._STATE_BUCKET_(state)}/dpc-out-{utils.random_id8()}"
         
         return {
-            'time_range': inferrers.infer_time_range(
-                default_hours_back=1,
-                delay_minutes=DPC_DATA_DELAY_MINUTES
-            ),
+            # 'time_range': inferrers.infer_time_range(
+            #     default_hours_back=1,
+            #     delay_minutes=DPC_DATA_DELAY_MINUTES
+            # ),
             'time_start': inferrers.infer_time_start(
                 default_hours_back=1,
                 delay_minutes=DPC_DATA_DELAY_MINUTES
@@ -276,23 +291,36 @@ class DPCRetrieverTool(BaseTool):
             Dict with status and tool_output or error message
         """
         # Build API payload
-        payload = self._build_api_payload(kwargs)
+        req_payload = self._build_api_payload(kwargs)
 
         # Call DPC API
-        api_response = self._call_dpc_api(payload)
+        api_response = self._call_dpc_api(req_payload)
 
         # Process response
-        return self._process_api_response(api_response, kwargs)
+        return self._process_api_response(req_payload, api_response)
 
     def _build_api_payload(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Build API request payload from tool arguments."""
+
+        bbox_data = kwargs['bbox']
+        if hasattr(bbox_data, 'to_list'):
+            bbox_list = bbox_data.to_list()
+        elif isinstance(bbox_data, dict):
+            bbox_list = list(bbox_data.values())
+        else:
+            bbox_list = bbox_data
+        long_range = [bbox_list[0], bbox_list[2]]
+        lat_range = [bbox_list[1], bbox_list[3]]
+        
+        time_start = inferrers.to_iso_naive(kwargs['time_start'])
+        time_end = inferrers.to_iso_naive(kwargs['time_end'])
+
         tool_args = {
             'product': kwargs['product'],
-            'time_range': [
-                # Note: Uncomment when ready to use actual time parameters
-                # datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
-                # datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
-            ]
+            'long_range': long_range,
+            'lat_range': lat_range,
+            'time_range': [time_start, time_end],
+            'bucket_destination': kwargs['bucket_destination']
         }
 
         credentials = {
@@ -323,7 +351,8 @@ class DPCRetrieverTool(BaseTool):
         """
         api_url = self._get_api_url()
 
-        # TODO: Uncomment when ready for production
+        print(f"Calling DPC API at {api_url} with payload:\n", json.dumps(payload, indent=2))
+        
         return requests.post(api_url, json=payload)
 
         # Temporary mock response for testing
@@ -332,7 +361,7 @@ class DPCRetrieverTool(BaseTool):
     @staticmethod
     def _get_api_url() -> str:
         """Get DPC Retriever API URL from environment."""
-        api_root = os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5002')
+        api_root = os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5001')
         return f"{api_root}/processes/dpc-retriever-process/execution"
 
     @staticmethod
@@ -342,23 +371,25 @@ class DPCRetrieverTool(BaseTool):
             status_code = 200
 
             def json(self) -> Dict[str, str]:
+                # DOC: Example output structure
                 return {
-                    "uri": "s3://saferplaces.co/packages/examples/dpc-rain.tif"
+                    "status": "OK",
+                    "uri": "s3://saferplaces.co/SaferPlaces-Agent/dev/user=tommaso/project=ma-005/dpc-out/DPC__TEMP__2026-03-19 23:00:00.tif"
                 }
 
         return MockResponse()
 
     def _process_api_response(
         self, 
-        api_response: Any, 
-        kwargs: Dict[str, Any]
+        req_payload: Dict[str, Any], 
+        api_response: Any
     ) -> Dict[str, Any]:
         """
         Process API response and format tool output.
 
         Args:
+            req_payload: Original request payload
             api_response: Response from DPC API
-            kwargs: Original tool arguments
 
         Returns:
             Formatted tool response
@@ -374,20 +405,54 @@ class DPCRetrieverTool(BaseTool):
         response_data = api_response.json()
 
         # Validate response structure
-        if 'uri' not in response_data:
+        if response_data.get('status') != STATUS_OK or 'uri' not in response_data:
             return {
                 'status': STATUS_ERROR,
                 'message': f"Unexpected API response format: {response_data}"
             }
 
         # Return success response
-        return {
+        tool_output = {
             'status': STATUS_SUCCESS,
-            'tool_output': {
-                'data': response_data,
-                'description': f"DPC {kwargs['product']} data retrieved successfully"
+            'tool_output': self._format_tool_output(req_payload, response_data)
+        }
+
+        print('DPC tool output: \n', tool_output)
+        return tool_output
+
+    def _surface_type_from_variable(self, variable: str) -> str:
+        """
+        Map a variable name to a well-known standard surface type.
+        """
+        return DPC_PRODUCT_TO_SURFACE_TYPE.get(variable, variable)
+
+    def _format_tool_output(
+            self,
+            req_payload: Dict[str, Any],
+            response_data: Dict[str, Any]
+        ) -> Dict[str, Any]:
+        """
+        Generate tool output from API response data.
+        """
+        
+        output_description = "DPC observation data retrieved successfully. Here is the collected layers data with their references and metadata:"
+
+        variable = req_payload['inputs']['product']
+        source = response_data['uri']
+        metadata = {
+            'surface_type': self._surface_type_from_variable(variable),
+            ** utils.raster_ts_specs(response_data['uri'], timestamps_attr='band_names')
+        }
+            
+        return {
+            'description': output_description,
+            'data': {
+                'variable': variable,
+                'source': source,
+                'metadata': metadata
             }
         }
+
 
     def _run(
         self,

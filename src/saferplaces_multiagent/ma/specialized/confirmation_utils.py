@@ -8,6 +8,7 @@ from langgraph.types import interrupt
 
 from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
+from ...common.response_classifier import ResponseClassifier
 
 
 # ============================================================================
@@ -54,9 +55,10 @@ class ToolInvocationConfirmationHandler:
     def __init__(self, llm=None):
         """Initialize handler with LLM for classification."""
         self.llm = llm or _base_llm
+        self._classifier = ResponseClassifier(self.llm)
 
     def classify_user_response(self, response: str) -> str:
-        """Classify user intent using zero-shot classification.
+        """Classify user intent using hybrid rule-based + LLM classification.
         
         Args:
             response: User's response string
@@ -64,27 +66,7 @@ class ToolInvocationConfirmationHandler:
         Returns:
             Label name: "accept" | "modify" | "clarify" | "reject" | "abort"
         """
-        classification_prompt = (
-            f"Classify the user's response into one of these categories:\n\n"
-            f"{json.dumps(INVOCATION_RESPONSE_LABELS, indent=2)}\n\n"
-            f"User response: {response}\n\n"
-            f"Return ONLY the label name (accept/modify/clarify/reject/abort)."
-        )
-
-        messages = [
-            SystemMessage(content="You are a precise intent classifier."),
-            HumanMessage(content=classification_prompt)
-        ]
-
-        llm_response = self.llm.invoke(messages)
-        label = llm_response.content.strip().lower()
-
-        # Validate label
-        if label not in INVOCATION_RESPONSE_LABELS:
-            print(f"⚠ Unknown classification '{label}', defaulting to 'reject'")
-            return "reject"
-
-        return label
+        return self._classifier.classify_invocation_response(response)
 
     def process_confirmation(
         self,
@@ -190,9 +172,6 @@ class ToolInvocationConfirmationHandler:
             state["current_step"] = plan_length
             print("[ConfirmationHandler] ⚠ Abort: no more steps, marking as complete")
         
-        # Reset clarify counter
-        state["clarify_iteration_count"] = 0
-        
         return state
 
     def _handle_clarify(
@@ -217,14 +196,15 @@ class ToolInvocationConfirmationHandler:
         Returns:
             Updated state (may recursively call process_confirmation)
         """
-        # Check iteration count
-        clarify_count = state.get("clarify_iteration_count", 0)
-        if clarify_count >= max_iterations:
-            print(f"[ConfirmationHandler] ⚠ Max clarify iterations ({max_iterations}) reached, forcing reject")
+        # Check interaction budget
+        interaction_count = state.get("interaction_count", 0)
+        interaction_budget = state.get("interaction_budget", 8)
+        if interaction_count >= interaction_budget:
+            print(f"[ConfirmationHandler] ⚠ Interaction budget exhausted ({interaction_budget}), forcing reject")
             return self._handle_reject(state, confirmation_key, reinvocation_key, user_question)
 
-        state["clarify_iteration_count"] = clarify_count + 1
-        print(f"[ConfirmationHandler] → Clarify iteration {state['clarify_iteration_count']}/{max_iterations}")
+        state["interaction_count"] = interaction_count + 1
+        print(f"[ConfirmationHandler] → Clarify iteration (interaction {state['interaction_count']}/{interaction_budget})")
 
         # Generate explanation
         invocation = state.get(invocation_key)

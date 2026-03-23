@@ -1,9 +1,10 @@
 import os
+import json
 import requests
 from datetime import datetime, timezone
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
 
@@ -43,10 +44,16 @@ METEOBLUE_DEFAULT_FORECAST_HOURS = 24  # Default forecast window
 METEOBLUE_MAX_FORECAST_DAYS = 14       # Maximum forecast horizon
 
 # Response status constants
+STATUS_OK = "OK"
 STATUS_SUCCESS = "success"
 STATUS_ERROR = "error"
-STATUS_OK = "OK"
 
+
+METEOBLUE_VARIABLE_TO_SURFACE_TYPE = {
+    'PRECIPITATION': 'rain-timeseries',
+    'TEMPERATURE': 'temperature-timeseries',
+    # Add more mappings as needed
+}
 
 # ============================================================================
 # Schema
@@ -92,26 +99,33 @@ class MeteoblueRetrieverSchema(BaseModel):
     )
 
     # Geographic extent (preferred)
-    bbox: Optional[base_models.BBox] = Field(
-        default=None,
-        title="Bounding Box",
-        description="Geographic extent in EPSG:4326 (west, south, east, north).",
-        examples=[{"west": 7.0, "south": 45.0, "east": 7.1, "north": 45.1}]
+    bbox: base_models.BBox = Field(
+        ...,
+        title="Area of Interest (bbox)",
+        description=(
+            "Geographic extent in EPSG:4326 using named keys west, south, east, north. "
+            "It defines the Area of Interest (AOI) for the Digital Twin. "
+            "Example: {'west': 9.05, 'south': 45.42, 'east': 9.25, 'north': 45.55}"
+        ),
+        examples=[
+            {"west": 9.05, "south": 45.42, "east": 9.25, "north": 45.55},
+        ],
+        validation_alias=AliasChoices("bbox", "aoi", "extent", "bounds", "bounding_box"),
     )
 
-    # Geographic extent (fallback)
-    lat_range: Optional[List[float]] = Field(
-        default=None,
-        title="Latitude Range",
-        description="Latitude range [min, max] in EPSG:4326. Prefer using bbox.",
-        examples=[[45.0, 45.1]]
-    )
-    long_range: Optional[List[float]] = Field(
-        default=None,
-        title="Longitude Range",
-        description="Longitude range [min, max] in EPSG:4326. Prefer using bbox.",
-        examples=[[7.0, 7.1]]
-    )
+    # # Geographic extent (fallback)
+    # lat_range: Optional[List[float]] = Field(
+    #     default=None,
+    #     title="Latitude Range",
+    #     description="Latitude range [min, max] in EPSG:4326. Prefer using bbox.",
+    #     examples=[[45.0, 45.1]]
+    # )
+    # long_range: Optional[List[float]] = Field(
+    #     default=None,
+    #     title="Longitude Range",
+    #     description="Longitude range [min, max] in EPSG:4326. Prefer using bbox.",
+    #     examples=[[7.0, 7.1]]
+    # )
 
     # Time window (preferred)
     time_start: Optional[str] = Field(
@@ -127,13 +141,13 @@ class MeteoblueRetrieverSchema(BaseModel):
         examples=["2026-02-19T00:00:00Z"]
     )
 
-    # Time window (fallback)
-    time_range: Optional[List[str]] = Field(
-        default=None,
-        title="Time Range",
-        description="Time range [start, end] in ISO8601. Prefer using time_start/time_end.",
-        examples=[["2026-02-18T00:00:00Z", "2026-02-19T00:00:00Z"]]
-    )
+    # # Time window (fallback)
+    # time_range: Optional[List[str]] = Field(
+    #     default=None,
+    #     title="Time Range",
+    #     description="Time range [start, end] in ISO8601. Prefer using time_start/time_end.",
+    #     examples=[["2026-02-18T00:00:00Z", "2026-02-19T00:00:00Z"]]
+    # )
 
     # Output options
     out: Optional[str] = Field(
@@ -243,6 +257,21 @@ class MeteoblueRetrieverTool(BaseTool):
 
     def _set_args_inference_rules(self) -> Dict[str, Any]:
         """Define inference rules for missing arguments."""
+
+        # def infer_time_range(**kwargs: Any) -> str:
+        #     time_range = kwargs.get('time_range')
+        #     time_start = kwargs.get('time_start')
+        #     time_end = kwargs.get('time_end')
+        #     if time_range is None:
+        #         if time_start is not None and time_end is not None:
+        #             time_range = [time_start, time_end]
+        #         else:
+        #             time_range = inferrers.infer_time_range(
+        #                 default_hours_back=-METEOBLUE_DEFAULT_FORECAST_HOURS,  # Negative = future
+        #                 delay_minutes=0
+        #             )(**kwargs)
+        #     return time_range
+            
         def infer_bucket_source(**kwargs: Any) -> str:
             """Infer default S3 source bucket."""
             state = kwargs.pop('_graph_state', None)
@@ -254,16 +283,13 @@ class MeteoblueRetrieverTool(BaseTool):
             return f"{s3_utils._STATE_BUCKET_(state)}/meteoblue-out"
         
         return {
-            'time_range': inferrers.infer_time_range(
-                default_hours_back=-METEOBLUE_DEFAULT_FORECAST_HOURS,  # Negative = future
-                delay_minutes=0
-            ),
+            # 'time_range': infer_time_range,
             'time_start': inferrers.infer_time_start(
-                default_hours_back=-METEOBLUE_DEFAULT_FORECAST_HOURS,  # Negative = future
+                default_hours_back=-METEOBLUE_DEFAULT_FORECAST_HOURS,
                 delay_minutes=0
             ),
             'time_end': inferrers.infer_time_end(
-                delay_minutes=0
+                delay_minutes=-60
             ),
             'bucket_source': infer_bucket_source,
             'bucket_destination': infer_bucket_destination
@@ -280,28 +306,38 @@ class MeteoblueRetrieverTool(BaseTool):
             Dict with status and tool_output or error message
         """
         # Build API payload
-        payload = self._build_api_payload(kwargs)
+        req_payload = self._build_api_payload(kwargs)
 
         # Call Meteoblue API
-        api_response = self._call_meteoblue_api(payload)
+        api_response = self._call_meteoblue_api(req_payload)
 
         # Process response
-        return self._process_api_response(api_response, kwargs)
+        return self._process_api_response(req_payload, api_response)
 
     def _build_api_payload(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Build API request payload from tool arguments."""
+
+        bbox_data = kwargs['bbox']
+        if hasattr(bbox_data, 'to_list'):
+            bbox_list = bbox_data.to_list()
+        elif isinstance(bbox_data, dict):
+            bbox_list = list(bbox_data.values())
+        else:
+            bbox_list = bbox_data
+        long_range = [bbox_list[0], bbox_list[2]]
+        lat_range = [bbox_list[1], bbox_list[3]]
+        
+        time_start = inferrers.to_iso_naive(kwargs['time_start'])
+        time_end = inferrers.to_iso_naive(kwargs['time_end'])
+
         tool_args = {
             'location_name': utils.random_id8(),
             'variable': kwargs['variable'],
-            # Note: Uncomment when ready to use actual parameters
-            # 'lat_range': kwargs['bbox']['lat_range'],
-            # 'long_range': kwargs['bbox']['long_range'],
-            # 'time_range': [
-            #     datetime.fromisoformat(kwargs['time_start']).replace(tzinfo=None).isoformat(),
-            #     datetime.fromisoformat(kwargs['time_end']).replace(tzinfo=None).isoformat(),
-            # ],
-            # 'bucket_source': kwargs['bucket_source'],
-            # 'bucket_destination': kwargs['bucket_destination']
+            'lat_range': lat_range,
+            'long_range': long_range,
+            'time_range': [time_start, time_end],
+            'bucket_source': kwargs['bucket_source'],
+            'bucket_destination': kwargs['bucket_destination']
         }
         
         credentials = {
@@ -332,7 +368,8 @@ class MeteoblueRetrieverTool(BaseTool):
         """
         api_url = self._get_api_url()
 
-
+        print(f"Calling Meteoblue API at {api_url} with payload:\n", json.dumps(payload, indent=2))
+        
         return requests.post(api_url, json=payload)
 
         # Temporary mock response for testing
@@ -341,7 +378,7 @@ class MeteoblueRetrieverTool(BaseTool):
     @staticmethod
     def _get_api_url() -> str:
         """Get Meteoblue Retriever API URL from environment."""
-        api_root = os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5002')
+        api_root = os.getenv('SAFERCAST_API_ROOT', 'http://localhost:5001')
         return f"{api_root}/processes/meteoblue-retriever-process/execution"
 
     @staticmethod
@@ -351,12 +388,17 @@ class MeteoblueRetrieverTool(BaseTool):
             status_code = 200
 
             def json(self) -> Dict[str, Any]:
+                # DOC: Example output structure
                 return {
-                    'status': STATUS_OK,
-                    'collected_data_info': [
+                    "status": "OK",
+                    "collected_data_info": [
                         {
-                            'variable': 'PRECIPITATION',
-                            'ref': 's3://example-bucket/meteoblue-out/meteoblue-precipitation.tif'
+                            "variable": "precipitation",
+                            "ref": "s3://saferplaces.co/packages/process-meteoblue-hub/retriever//Meteoblue__Piemonte2__precipitation__2026-03-21T00:00:00.tif"
+                        },
+                        {
+                            "variable": "temperature",
+                            "ref": "s3://saferplaces.co/packages/process-meteoblue-hub/retriever//Meteoblue__Piemonte2__temperature__2026-03-21T00:00:00.tif"
                         }
                     ]
                 }
@@ -365,15 +407,15 @@ class MeteoblueRetrieverTool(BaseTool):
 
     def _process_api_response(
         self, 
-        api_response: Any, 
-        kwargs: Dict[str, Any]
+        req_payload: Dict[str, Any],
+        api_response: Any
     ) -> Dict[str, Any]:
         """
         Process API response and format tool output.
 
         Args:
+            req_payload: Original request payload
             api_response: Response from Meteoblue API
-            kwargs: Original tool arguments
 
         Returns:
             Formatted tool response
@@ -387,7 +429,8 @@ class MeteoblueRetrieverTool(BaseTool):
 
         # Parse response JSON
         response_data = api_response.json()
-
+        print(f"Meteoblue API response:\n", json.dumps(response_data, indent=2))
+        
         # Validate response structure
         if response_data.get('status') != STATUS_OK:
             return {
@@ -396,13 +439,55 @@ class MeteoblueRetrieverTool(BaseTool):
             }
 
         # Return success response
-        return {
+        tool_output = {
             'status': STATUS_SUCCESS,
-            'tool_output': {
-                'data': response_data,
-                'description': f"Meteoblue {kwargs['variable']} forecast data retrieved successfully"
-            }
+            'tool_output': self._format_tool_output(req_payload, response_data)
         }
+
+        print('Meteoblue tool output: \n', tool_output)
+
+        return tool_output
+    
+
+    def _surface_type_from_variable(self, variable: str) -> str:
+        """
+        Map a variable name to a well-known standard surface type.
+        """
+        return METEOBLUE_VARIABLE_TO_SURFACE_TYPE.get(variable, variable)
+
+
+    def _format_tool_output(
+            self,
+            req_payload: Dict[str, Any],
+            response_data: Dict[str, Any]
+        ) -> Dict[str, Any]:
+        """
+        Generate tool output from API response data.
+        """
+
+        output_description = "Meteoblue forecast data retrieved successfully. Here is the collected layers data with their references and metadata:"
+
+        def format_item(item: Dict[str, Any]) -> str:
+            item_variable = item['variable']
+            item_ref = item['ref']
+            item_metadata = {
+                'surface_type': self._surface_type_from_variable(item_variable),
+                ** utils.raster_ts_specs(item_ref, timestamps_attr='band_names'),
+            }
+            return {
+                'variable': item_variable,
+                'source': item_ref,
+                'metadata': item_metadata 
+            }
+        
+        return {
+            'description': output_description,
+            'data': [
+                format_item(item)
+                for item in response_data.get('collected_data_info', [])
+            ]
+        }
+
 
     def _run(self, **kwargs: Any) -> Dict[str, Any]:
         """
