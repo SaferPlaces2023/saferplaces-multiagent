@@ -1,41 +1,33 @@
-FROM python:3.11-slim AS runtime
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
-
-# strumenti di build se servono wheels
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential curl \
-    libexpat1 \
- && rm -rf /var/lib/apt/lists/*
+# ──────────────────────────────────────────────────────────────────────────────
+# SaferPlaces Multiagent — Flask interface
+# ──────────────────────────────────────────────────────────────────────────────
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# venv dedicata
-RUN python -m venv /venv
-ENV PATH="/venv/bin:$PATH"
+# Build tools needed for native extensions (e.g. triangle, rasterio fallback)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        git \
+    && rm -rf /var/lib/apt/lists/*
 
-# install deps (sfrutta cache docker)
-COPY . /app
-RUN /venv/bin/pip install --upgrade pip && \
-    /venv/bin/pip install gunicorn && \
-    /venv/bin/pip install "titiler[full]" --prefer-binary && \
-    /venv/bin/pip install '.[dev,leafmap]'
+# Copy package metadata first so dep-install layer is cached independently
+COPY pyproject.toml README.md ./
 
-ENV PYTHONPATH="/app"
+# Copy source tree
+COPY src/ ./src/
 
-# utente non-root
-RUN adduser --disabled-password --gecos "" appuser && chown -R appuser:appuser /app /venv
-USER appuser
+# Frontend static files are mounted at runtime via docker-compose volume.
+# Create the mount point so the path exists even without the volume.
+RUN mkdir -p /app/frontend
 
-# config gunicorn via env
-ENV GUNICORN_WORKERS=3 \
-    GUNICORN_THREADS=2 \
-    GUNICORN_BIND="0.0.0.0:5000" \
-    LOG_LEVEL=info
+# Install package with all optional extras + gunicorn (prod WSGI server)
+RUN pip install --no-cache-dir -e ".[leafmap,cesium]" gunicorn
 
 EXPOSE 5000
 
-# usa il path assoluto della venv: evita problemi di PATH
-CMD ["/venv/bin/gunicorn", "saferplaces_multiagent.agent_interface.flask_server.prod.wsgi:app", "-c", "src/saferplaces_multiagent/agent_interface/flask_server/prod/gunicorn.conf.py"]
+# Gunicorn reads its config (workers, threads, timeout…) from the file below.
+# Override individual settings via environment variables — see gunicorn.conf.py.
+CMD ["gunicorn", \
+     "--config", "src/saferplaces_multiagent/agent_interface/flask_server/prod/gunicorn.conf.py", \
+     "saferplaces_multiagent.agent_interface.flask_server.prod.wsgi:app"]

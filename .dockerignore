@@ -1,11 +1,11 @@
 .git
 .gitignore
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.pyd
 *.log
 *.sqlite3
+*.egg-info/
 .venv
 .env
 venv/
@@ -19,3 +19,10 @@ node_modules/
 .vscode/
 .docker-compose.local.yml
 test/
+tests/
+*.ipynb
+__state_log__*.json
+*.bat
+docs/
+implementations/
+multiagent-*.md
