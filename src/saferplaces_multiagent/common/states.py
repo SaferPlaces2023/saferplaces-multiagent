@@ -253,7 +253,7 @@ class BaseGraphState():
 
 
 def merge_layer_registry(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
-    return utils.merge_dict_sequences(left, right, unique_key='src', method='update')
+    return utils.merge_dict_sequences(left, right, unique_key='src', method='overwrite')
 
 def merge_user_drawn_shapes(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
     return utils.merge_dict_sequences(left, right, unique_key='collection_id', method='overwrite')

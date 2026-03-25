@@ -3,10 +3,12 @@ import requests
 
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
-from pydantic import BaseModel, Field, AliasChoices
+from pydantic import BaseModel, Field, AliasChoices, PrivateAttr
 
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import CallbackManagerForToolRun
+
+from saferplaces_multiagent.common.states import MABaseGraphState
 
 from ....common import utils, s3_utils
 from ....common import names as N
@@ -26,9 +28,10 @@ EXECUTION_MODES = [EXECUTION_MODE_LAMBDA, EXECUTION_MODE_BATCH]
 STATUS_SUCCESS = "success"
 STATUS_ERROR = "error"
 
-# Default band indices (1-based)
+# Default args values
 DEFAULT_BAND_START = 1
 DEFAULT_BAND_END = 1
+DEFAULT_T_SRS = "EPSG:3857"
 
 # Rainfall raster band interpretation
 BAND_SINGLE = 1  # Single band (constant rainfall)
@@ -209,6 +212,8 @@ class SaferRainTool(BaseTool):
         "Ideal when computing flood extent and water depth for a given rainfall event over an existing DEM."
     )
 
+    _graph_state: Optional[MABaseGraphState] = PrivateAttr(default=None)
+
     def __init__(self, **kwargs: Any) -> None:
         """Initialize the SaferRain Tool."""
         super().__init__(
@@ -225,6 +230,10 @@ class SaferRainTool(BaseTool):
             args_schema=SaferRainInputSchema,
             **kwargs
         )
+
+    def _set_graph_state(self, graph_state: MABaseGraphState) -> None:
+        """Set the graph state for the tool."""
+        self._graph_state = graph_state
 
     def _set_args_validation_rules(self) -> Dict[str, List]:
         """Define validation rules for tool arguments."""
@@ -271,12 +280,17 @@ class SaferRainTool(BaseTool):
             water_filename = f"water-depth-{utils.b64uuid()}.tif"
             return f"{s3_utils._STATE_BUCKET_(state)}/saferrain-out/{water_filename}"
 
+        def infer_t_srs(**kwargs: Any) -> str:
+            """Infer default target spatial reference system."""
+            return DEFAULT_T_SRS    # DOC: Force to "EPSG:3857" → ready for maplibre
+
         def infer_mode(**kwargs: Any) -> str:
             """Infer default execution mode."""
             return EXECUTION_MODE_LAMBDA
 
         return {
             'water': infer_water,
+            't_srs': infer_t_srs,
             'mode': infer_mode,
         }
 
@@ -291,13 +305,13 @@ class SaferRainTool(BaseTool):
             Dict with status and tool_output or error message
         """
         # Build API payload
-        payload = self._build_api_payload(kwargs)
+        req_payload = self._build_api_payload(kwargs)
 
         # Call SaferRain API
-        api_response = self._call_saferrain_api(payload)
+        api_response = self._call_saferrain_api(req_payload)
 
         # Process response
-        return self._process_api_response(api_response, kwargs)
+        return self._process_api_response(req_payload, api_response)
 
     def _build_api_payload(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Build API request payload from tool arguments."""
@@ -308,8 +322,8 @@ class SaferRainTool(BaseTool):
             'to_band': kwargs.get('to_band', DEFAULT_BAND_END),
             'water': kwargs.get('water'),
             'mode': kwargs['mode'],
+            't_srs': kwargs.get('t_srs'),
             # Note: Uncomment target_srs when ready
-            # 't_srs': kwargs.get('t_srs'),
         }
 
         credentials = {
@@ -341,6 +355,8 @@ class SaferRainTool(BaseTool):
         """
         api_url = self._get_api_url()
 
+        print(f"Calling SaferRain API at {api_url} with payload:\n", json.dumps(payload, indent=2))
+
         return requests.post(api_url, json=payload)
 
         # Temporary mock response for testing
@@ -360,22 +376,22 @@ class SaferRainTool(BaseTool):
 
             def json(self) -> Dict[str, str]:
                 return {
-                    "uri": "s3://example-bucket/saferrain-out/water-depth.tif"
+                    "water_depth_file": "s3://example-bucket/saferrain-out/water-depth.tif"
                 }
 
         return MockResponse()
 
     def _process_api_response(
         self, 
-        api_response: Any, 
-        kwargs: Dict[str, Any]
+        req_payload: Dict[str, Any], 
+        api_response: Any
     ) -> Dict[str, Any]:
         """
         Process API response and format tool output.
 
         Args:
+            req_payload: Original request payload
             api_response: Response from SaferRain API
-            kwargs: Original tool arguments
 
         Returns:
             Formatted tool response
@@ -391,20 +407,50 @@ class SaferRainTool(BaseTool):
         response_data = api_response.json()
 
         # Validate response structure
-        if 'uri' not in response_data:
+        if 'water_depth_file' not in response_data:
             return {
                 'status': STATUS_ERROR,
                 'message': f"Unexpected API response format: {response_data}"
             }
 
         # Return success response
-        return {
+        tool_output = {
             'status': STATUS_SUCCESS,
-            'tool_output': {
-                'data': response_data,
-                'description': f"Flood simulation completed. Water depth raster: {response_data['uri']}"
+            'tool_output': self._format_tool_output(req_payload, response_data)
+        }
+
+        print('SaferRain tool output: \n', tool_output)
+        return tool_output
+    
+
+    def _format_tool_output(
+        self,
+        req_payload: Dict[str, Any],
+        response_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Format the tool output."""
+
+        output_description = (
+            "Flood simulation completed. "
+            "Here is the generated flood water depth raster with its S3 URI and metadata."
+        )
+
+        variable = 'waterdepth'
+        source = response_data['water_depth_file']
+        metadata = {
+            'surface_type': 'water-depth',
+            ** utils.raster_specs(response_data['water_depth_file'])
+        }
+
+        return {
+            'description': output_description,
+            'data': {
+                'variable': variable,
+                'source': source,
+                'metadata': metadata
             }
         }
+
 
     def _run(self, **kwargs: Any) -> Dict[str, Any]:
         """

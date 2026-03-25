@@ -296,8 +296,8 @@ def raster_specs(src: str) -> dict:
     crs_str = da.rio.crs.to_string() if da.rio.crs else None
     bounds_proj = gpd.GeoDataFrame(geometry=[box(*da.rio.bounds())], crs=da.rio.crs).to_crs(epsg=4326).total_bounds.tolist()
     return {
-        'min': min_val,
-        'max': max_val,
+        'min': min_val if not np.isnan(min_val) else None,
+        'max': max_val if not np.isnan(max_val) else None,
         'nodata': nodata_val,
         'n_bands': n_bands,
         'crs': crs_str,
@@ -546,7 +546,11 @@ def get_conversation_context(state, n: int = 5) -> str:
 
 # REGION: [LLM and Tools]
 
-_base_llm = ChatOpenAI(model="gpt-4o-mini")
+_base_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    max_completion_tokens=500,
+    temperature=0
+)
 
 def ask_llm(role, message, llm=_base_llm, eval_output=False):
     if type(message) is str:

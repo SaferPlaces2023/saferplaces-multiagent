@@ -11,7 +11,7 @@ from saferplaces_multiagent.multiagent_node import MultiAgentNode
 
 from ...common.states import MABaseGraphState
 from ...common.base_models import Layer
-from ...common.utils import _base_llm, vector_specs, raster_specs, raster_ts_specs
+from ...common.utils import _base_llm, vector_specs, raster_specs, raster_ts_specs, common_specs
 # from ...nodes.base.base_models import Layer
 from ..names import NodeNames
 
@@ -57,9 +57,10 @@ class LayersRegistry:
         if isinstance(layer, dict):
             layer = Layer(**layer)
         if layer.title in self._layers:
-            # TODO: should add a progressive to title instaed of raising an error
-            raise KeyError(f"Layer '{layer.title}' already exists")
+            # DOC: Layer with the same title already exists, skipping addition
+            return
         self._layers[layer.title] = layer
+        self._ensure_metadata_exists(layer)
         return layer
 
     def remove_layer(self, title: str) -> bool:
@@ -77,12 +78,29 @@ class LayersRegistry:
             metadata=kwargs.get("metadata", existing.metadata),
         )
         self._layers[title] = updated
+        self._ensure_metadata_exists(updated)
         return updated
 
     def search_by_type(self, layer_type: str) -> List[Layer]:
         if layer_type not in ("raster", "vector"):
             raise ValueError("layer_type must be 'raster' or 'vector'")
         return [l for l in self._layers.values() if l.type == layer_type]
+    
+    def _ensure_metadata_exists(self, layer: Layer):
+        metadata_null = layer.metadata is None
+        metadata_invalid = not isinstance(layer.metadata, dict)
+        metadata_empty = isinstance(layer.metadata, dict) and len(layer.metadata) == 0
+
+        recompute_metadata = any([metadata_null, metadata_invalid, metadata_empty])
+
+        if recompute_metadata:
+            layer.metadata = {}
+            if layer.type == 'raster':
+                layer.metadata = raster_specs(layer.src)
+            elif layer.type == 'vector':
+                layer.metadata = vector_specs(layer.src)
+            else:
+                layer.metadata = common_specs(layer.src)
 
 
 # Tool schemas

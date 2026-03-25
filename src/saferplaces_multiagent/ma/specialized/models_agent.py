@@ -47,19 +47,25 @@ MODELS_AGENT_DESCRIPTION = {
     ),
     "examples": [
         "Run flood propagation for a 50mm rainfall scenario on a bounding box",
-        "Create a Digital Twin (DEM + buildings + land-use) for a new area of interest",
+        "Create a minimal Digital Twin (DEM only) for a new area of interest",
+        "Generate full Digital Twin with elevation, hydrology, buildings and land-use layers for an AOI",
         "Simulate flood extent and water depth using a multiband radar rainfall raster and an existing DEM",
     ],
     "outputs": [
-        "DEM/DTM raster layer (from DigitalTwinTool)",
-        "Building footprints layer (from DigitalTwinTool)",
-        "Land-use/land-cover layer (from DigitalTwinTool)",
+        "Up to 25 spatially-aligned raster/vector layers across 5 categories (from DigitalTwinTool)",
+        "  - Elevation: DEM, valley depth, TRI, TPI",
+        "  - Hydrology: slope, HAND, TWI, flow dir/accum, streams, river distance, river network",
+        "  - Constructions: buildings (vector), roads (vector), DEM with buildings, filled DEM with buildings",
+        "  - Land Cover: land-use, Manning roughness, NDVI, NDWI, NDBI, sea mask",
+        "  - Soil: sand, clay",
         "Water depth raster — flood simulation output (from SaferRainTool)",
     ],
     "prerequisites": {
         "DigitalTwinTool": (
             "None — only requires a bounding box (AOI). "
-            "Use as the FIRST step when no DEM exists in the available layers."
+            "Use as the FIRST step when no DEM or base layers exist. "
+            "Default layers for generic requests (new project, digital twin, DEM only): layers=['dem']. "
+            "Only specify additional layers if the user explicitly requests them."
         ),
         "SaferRainTool": (
             "Requires a DEM/DTM raster. "
@@ -571,7 +577,15 @@ class ModelsExecutor(MultiAgentNode):
             f"Arguments: {json.dumps(tool_args, indent=2)}\n"
             f"Result: {json.dumps(result, indent=2)}\n\n"
             f"Extract the layer URI from the result and create a descriptive title "
-            f"and description based on the tool name and arguments."
+            f"and description based on the tool name and arguments.\n"
+            f"\n"
+            f"[METADATA HANDLING]\n"
+            f"- Metadata may or may not be available\n"
+            f"- If metadata are present, output them verbatim and in full\n"
+            f"- Preserve exact content and structure\n"
+            f"- Do not modify, paraphrase, summarize, truncate, or reorder\n"
+            f"- Do not infer or add missing metadata\n"
+            f"- If metadata are absent, do not generate any"
         )
 
         # Execute layers agent

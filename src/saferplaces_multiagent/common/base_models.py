@@ -80,10 +80,6 @@ class ParsedRequest(BaseModel):
         default_factory=list,
         description="Requirements inferred from context (e.g. 'needs DEM', 'needs bbox')"
     )
-    ambiguities: List[str] = Field(
-        default_factory=list,
-        description="Detected ambiguities that may need clarification"
-    )
     raw_text: str = Field(description="Original user input text verbatim")
 
     @property

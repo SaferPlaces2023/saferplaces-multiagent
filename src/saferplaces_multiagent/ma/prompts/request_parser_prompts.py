@@ -45,10 +45,6 @@ class RequestParserPrompts:
                     '  - "needs DEM for the target area" (for flood simulations when no DEM exists)\n'
                     '  - "needs bbox" (when location is named but no coordinates given)\n'
                     '  - "needs rainfall data" (when simulation requires rainfall raster not in context)\n'
-                    "- **ambiguities** (list of strings): Critical missing information for action requests ONLY. Examples:\n"
-                    '  - "Area not specified — where should the simulation run?"\n'
-                    '  - "Rainfall intensity not specified — how many mm?"\n'
-                    '  - "Time range not specified for data retrieval"\n'
                     "- **raw_text** (string): Verbatim copy of the user's message.\n"
                     "\n"
                     "## Context resolution rules\n"
@@ -57,15 +53,13 @@ class RequestParserPrompts:
                     '   - Milano → `{"country": "IT", "approx_bbox": [9.05, 45.40, 9.28, 45.53]}`\n'
                     '   - Nord Italia → `{"country": "IT", "approx_bbox": [6.6, 44.0, 14.0, 47.1]}`\n'
                     "2. For **parameters**: extract only what is explicitly stated. Do NOT invent values.\n"
-                    "3. For **ambiguities**: flag ONLY critical missing info for `action` requests. "
-                    "Info/analysis requests should have empty ambiguities.\n"
-                    "4. If the request mentions a location and layers already exist for that area, "
+                    "3. If the request mentions a location and layers already exist for that area, "
                     "note it in implicit_requirements (e.g. 'DEM already available for Roma').\n"
-                    "5. If the user specifies a location name but no bbox, resolve the approx_bbox in the entity BUT "
-                    "do NOT flag it as ambiguity — the system can use the resolved bbox.\n"
-                    "6. When the user references an existing layer by name (or describes a layer), resolve it to the "
+                    "4. If the user specifies a location name but no bbox, resolve the approx_bbox in the entity — "
+                    "the system can use the resolved bbox.\n"
+                    "5. When the user references an existing layer by name (or describes a layer), resolve it to the "
                     "matching layer from the Available Layers list. Include the layer's title and src in the resolved entity.\n"
-                    "7. When the user says 'in the area of layer X' or 'use the bbox of layer X', resolve the bbox from "
+                    "6. When the user says 'in the area of layer X' or 'use the bbox of layer X', resolve the bbox from "
                     "the layer's metadata and include it in the parameters.\n"
                     "\n"
                     "## Available layers in current project\n"
@@ -80,9 +74,8 @@ class RequestParserPrompts:
                     "## Important\n"
                     "- Be precise and concise.\n"
                     "- Do NOT hallucinate entities or parameters not present in the user's message.\n"
-                    "- For `info` and `clarification` request types, ambiguities should be empty.\n"
                     "- If the user's message is a simple greeting or general question, set request_type to `info` "
-                    "and leave entities, parameters, implicit_requirements, ambiguities empty."
+                    "and leave entities, parameters, and implicit_requirements empty."
                 )
             }
             return Prompt(p)

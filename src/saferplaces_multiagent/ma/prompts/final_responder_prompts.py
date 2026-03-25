@@ -50,7 +50,7 @@ class FinalResponderPrompts:
                 "The platform can:\n"
                 "1. **Flood simulation** (SaferRain): simulate flooding from constant rainfall (mm) "
                 "or retrieved rainfall rasters. Requires a DEM.\n"
-                "2. **Digital Twin creation** (DigitalTwinTool): generate DEM + buildings + land-use "
+                "2. **Digital Twin creation** (DigitalTwinTool): generate DEM + buildings"
                 "for any area from a bounding box.\n"
                 "3. **DPC meteorological data** (Italian Civil Protection): retrieve radar rainfall, "
                 "precipitation, temperature, lightning data for Italy. Past/recent data only.\n"
