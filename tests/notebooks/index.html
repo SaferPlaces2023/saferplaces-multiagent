@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="it">
+<body>
+  <ul id="lista"></ul>
+  <button onclick="avvia()">Avvia stream</button>
+
+  <script>
+    function avvia() {
+      const lista = document.getElementById("lista");
+
+      // EventSource apre la connessione SSE
+      const es = new EventSource("http://localhost:5000/stream");
+
+      es.onmessage = (event) => {
+        if (event.data === "[DONE]") {
+          es.close();          // chiudi la connessione
+          return;
+        }
+
+        // aggiungi elemento al DOM non appena arriva
+        const li = document.createElement("li");
+        li.textContent = event.data;
+        lista.appendChild(li);
+      };
+
+      es.onerror = () => {
+        console.error("Errore SSE");
+        es.close();
+      };
+    }
+  </script>
+</body>
+</html>

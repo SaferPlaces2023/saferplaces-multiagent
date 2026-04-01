@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, SystemMessage, BaseMessage
 from langgraph.types import interrupt
 
-from saferplaces_multiagent.multiagent_node import MultiAgentNode
+from ...common.base_models import Thought
+from ...multiagent_node import MultiAgentNode
 
 from ...common.states import MABaseGraphState, StateManager
 from ...common import utils
@@ -20,6 +21,7 @@ from ..prompts.supervisor_agent_prompts import OrchestratorPrompts
 from ..specialized.layers_agent import LayersAgent
 from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
 from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
+from ..specialized.map_agent import MAP_AGENT_DESCRIPTION
 
 
 # ============================================================================
@@ -52,13 +54,23 @@ class SupervisorAgent(MultiAgentNode):
     """Agent responsible for planning and orchestrating execution steps."""
 
     def __init__(self, name: str = NodeNames.SUPERVISOR_AGENT, log_state: bool = True):
-        super().__init__(name, log_state)
+        super().__init__(name, log_state, update_CoT=True)
         self.llm = _base_llm.with_structured_output(ExecutionPlan)
         self.layer_agent = LayersAgent()
 
     # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
     #     """Execute supervisor planning."""
     #     return self.run(state)
+
+    def _define_CoT(self, state: MABaseGraphState) -> list[Thought]:
+        if state['plan']:
+            return [
+                Thought(
+                    owner=self.name,
+                    message=f"Planned {len(state['plan'])} steps",
+                    payload=state['plan']
+                )
+            ]
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Main planning logic."""
@@ -137,7 +149,7 @@ class SupervisorAgent(MultiAgentNode):
 
         # Add enriched context to messages
         context_message = HumanMessage(content=context_str)
-        
+
         messages = [
             main_prompt,
             context_message,
@@ -365,7 +377,7 @@ class SupervisorRouter(MultiAgentNode):
     """Router that determines the next execution node based on plan state."""
 
     def __init__(self, name: str = NodeNames.SUPERVISOR_ROUTER, enabled: bool = False, log_state: bool = True):
-        super().__init__(name, log_state)
+        super().__init__(name, log_state, update_CoT=True)
         self.enabled = enabled
         self.llm = _base_llm
         self._classifier = ResponseClassifier(self.llm)
@@ -374,6 +386,15 @@ class SupervisorRouter(MultiAgentNode):
     # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
     #     """Execute routing logic."""
     #     return self.run(state)
+
+    def _define_CoT(self, state: MABaseGraphState) -> List[Thought]:
+        if state['supervisor_next_node']:
+            return [
+                Thought(
+                    owner=self.name,
+                    message=f'Call for next step → {state["supervisor_next_node"]}'
+                )
+            ]
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Determine next node in execution graph."""
@@ -549,11 +570,18 @@ class SupervisorRouter(MultiAgentNode):
         # Execute next step from plan
         if current_step is not None and current_step < len(plan):
             agent_name = plan[current_step]["agent"]
-            
-            # Initialize specialized agent cycle
-            agent_type = "models" if agent_name == NodeNames.MODELS_SUBGRAPH else "retriever"
-            StateManager.initialize_specialized_agent_cycle(state, agent_type)
-            
+
+            # Initialize specialized agent cycle for subgraph agents
+            if agent_name == NodeNames.MODELS_SUBGRAPH:
+                StateManager.initialize_specialized_agent_cycle(state, "models")
+            elif agent_name == NodeNames.RETRIEVER_SUBGRAPH:
+                StateManager.initialize_specialized_agent_cycle(state, "retriever")
+            elif agent_name == NodeNames.MAP_AGENT:
+                # Map agent uses map_request / map_invocation (no invocation_confirmation)
+                goal = plan[current_step].get("goal", "")
+                state["map_request"] = goal
+                state["map_invocation"] = None
+
             return agent_name
 
         # Plan exhausted: finalize response

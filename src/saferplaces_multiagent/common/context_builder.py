@@ -13,6 +13,8 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import json
 
+from .base_models import compute_geometry_metadata
+
 from langchain_core.messages import (
     BaseMessage, HumanMessage, AIMessage, SystemMessage, 
     ToolMessage, get_buffer_string
@@ -31,6 +33,9 @@ class PlanningContext:
     
     # Geospatial context (layer summary)
     available_layers_summary: Optional[str] = None
+
+    # User-registered shapes (shapes_registry summary)
+    available_shapes_summary: Optional[str] = None
     
     # Tool results from previous steps in this cycle
     previous_results_summary: Optional[str] = None
@@ -66,6 +71,9 @@ class ContextBuilder:
         
         # Phase 2: Geospatial context enrichment
         context.available_layers_summary = ContextBuilder._build_layers_summary(state)
+
+        # Phase 2b: Shapes registry context
+        context.available_shapes_summary = ContextBuilder._build_shapes_summary(state)
         
         # Phase 3: Tool results history (if this is a re-planning scenario)
         current_step = state.get("current_step")
@@ -76,6 +84,50 @@ class ContextBuilder:
         context.conversation_history = ContextBuilder._filter_conversation_history(state)
         
         return context
+
+    @staticmethod
+    def _build_shapes_summary(state: Dict[str, Any]) -> Optional[str]:
+        """Build human-readable summary of registered user shapes."""
+        shapes_registry = state.get("shapes_registry") or []
+        if not shapes_registry:
+            return None
+
+        summary_lines = [f"Shape registrate dall'utente: {len(shapes_registry)}"]
+        for shape in shapes_registry:
+            if not isinstance(shape, dict):
+                continue
+            shape_id = shape.get("shape_id", "?")
+            shape_type = shape.get("shape_type", "unknown")
+            label = shape.get("label")
+            created_at = shape.get("created_at", "")
+            geom = shape.get("geometry", {})
+            geom_type = geom.get("type", "") if isinstance(geom, dict) else ""
+
+            line = f"\n  • {shape_id}"
+            if label:
+                line += f" — {label}"
+            summary_lines.append(line)
+            summary_lines.append(f"    Tipo: {shape_type} ({geom_type})")
+            # Spatial metadata
+            meta = shape.get("metadata") or (compute_geometry_metadata(geom) if isinstance(geom, dict) else {})
+            if meta:
+                if "lon" in meta and "lat" in meta:
+                    summary_lines.append(f"    Coordinate: lon={meta['lon']}, lat={meta['lat']}")
+                if "bbox" in meta:
+                    b = meta["bbox"]
+                    summary_lines.append(
+                        f"    Bbox: west={b['west']}, south={b['south']}, east={b['east']}, north={b['north']}"
+                    )
+                if "area_km2" in meta:
+                    summary_lines.append(f"    Area: ~{meta['area_km2']} km²")
+                if "length_km" in meta:
+                    summary_lines.append(f"    Lunghezza: ~{meta['length_km']} km")
+                if "num_features" in meta:
+                    summary_lines.append(f"    N. sub-geometrie: {meta['num_features']}")
+            if created_at:
+                summary_lines.append(f"    Creata: {created_at}")
+
+        return "\n".join(summary_lines)
 
     @staticmethod
     def _build_layers_summary(state: Dict[str, Any]) -> str:
@@ -236,6 +288,9 @@ class ContextBuilder:
         
         if context.available_layers_summary:
             lines.append(f"\n{context.available_layers_summary}")
+
+        if context.available_shapes_summary:
+            lines.append(f"\n{context.available_shapes_summary}")
         
         if context.previous_results_summary:
             lines.append(f"\n{context.previous_results_summary}")

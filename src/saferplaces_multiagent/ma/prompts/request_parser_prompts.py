@@ -9,7 +9,7 @@ class RequestParserPrompts:
     class MainContext:
 
         @staticmethod
-        def stable(layer_summary: str = "No layers available.", **kwargs) -> Prompt:
+        def stable(layer_summary: str = "No layers available.", shapes_summary: str = "No shapes registered.", **kwargs) -> Prompt:
             p = {
                 "title": "RequestAnalyzerContext",
                 "description": "System prompt for 2-stage structured request analysis",
@@ -64,6 +64,12 @@ class RequestParserPrompts:
                     "\n"
                     "## Available layers in current project\n"
                     f"{layer_summary}\n"
+                    "\n"
+                    "## Shapes registered by the user\n"
+                    "These are geometric areas drawn by the user on the map. "
+                    "They can be used as spatial input (e.g. bounding box for simulations or analysis). "
+                    "When the user refers to 'the area I drew', 'my bbox', 'the selected zone', match it to one of these.\n"
+                    f"{shapes_summary}\n"
                     "\n"
                     "## Platform capabilities (for implicit_requirements detection)\n"
                     "- **Flood simulation** (SaferRain): requires DEM + rainfall (constant mm or raster)\n"

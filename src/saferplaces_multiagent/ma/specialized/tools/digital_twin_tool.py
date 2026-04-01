@@ -83,8 +83,21 @@ class DigitalTwinInputSchema(BaseModel):
     # Required: Spatial Scope and Layer Selection
     # ============================================================================
 
+    dem_reference: Optional[str] = Field(
+        default=None,
+        title="DEM Reference",
+        description=(
+            "Reference for the Digital Elevation Model (DEM) layer with which to align other layers.\n"
+            "When provided, then bbox does not need to be specified."
+        ),
+        examples=[
+            "s3://bucket.com/path/to/dem.tif"
+        ],
+        validation_alias=AliasChoices("dem_reference", "dem_template", "dem")
+    )
+
     bbox: base_models.BBox = Field(
-        ...,
+        default=None,
         title="Area of Interest (bbox)",
         description=(
             "Geographic extent in EPSG:4326 (WGS84) defining the Area of Interest.\n"
@@ -429,19 +442,22 @@ class DigitalTwinTool(BaseTool):
 
     def _build_api_payload(self, kwargs: Dict[str, Any]) -> Dict[str, Any]:
         """Build API request payload from tool arguments."""
-        bbox_data = kwargs['bbox']
-        if hasattr(bbox_data, 'to_list'):
-            bbox_list = bbox_data.to_list()
-        elif isinstance(bbox_data, dict):
-            bbox_list = [bbox_data['west'], bbox_data['south'], bbox_data['east'], bbox_data['north']]
+
+        if kwargs.get('bbox'):
+            bbox = kwargs['bbox']
+            if hasattr(bbox, 'to_list'):
+                bbox = bbox.to_list()
+            elif isinstance(bbox, dict):
+                bbox = [bbox['west'], bbox['south'], bbox['east'], bbox['north']]
         else:
-            bbox_list = bbox_data
+            bbox = None
 
         state = self._graph_state
         output_bucket = s3_utils._STATE_BUCKET_(state) if state else None
 
         tool_args = {
-            'bbox': bbox_list,
+            'dem_template': kwargs.get('dem_reference'),
+            'bbox': bbox,
             'output_bucket': output_bucket,
             'region_name': kwargs.get('region_name'),
             'pixelsize': kwargs.get('pixelsize', DEFAULT_PIXELSIZE),

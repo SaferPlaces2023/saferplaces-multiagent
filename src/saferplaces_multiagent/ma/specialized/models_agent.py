@@ -12,9 +12,12 @@ from ...common.states import MABaseGraphState, StateManager, build_nowtime_syste
 from ...common.utils import _base_llm
 from ...common.templates import format_tool_confirmation, format_validation_errors
 from ...common.execution_narrative import StepResult, LayerSummary
+from ...common import names as N
 from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool
 from .tools.digital_twin_tool import DigitalTwinTool
+from .tools.safer_buildings_tool import SaferBuildingsTool
+from .tools.safer_fire_tool import SaferFireTool
 from .layers_agent import LayersAgent
 from .confirmation_utils import ToolInvocationConfirmationHandler
 from .validation_utils import ToolValidationResponseHandler
@@ -28,7 +31,9 @@ from ..prompts.models_agent_prompts import ModelsPrompts
 # Agent registry description
 MODELS_AGENT_TOOLS = [
     DigitalTwinTool,
-    SaferRainTool
+    SaferRainTool,
+    SaferBuildingsTool,
+    SaferFireTool,
 ]
 MODELS_AGENT_DESCRIPTION = {
     "name": NodeNames.MODELS_AGENT,
@@ -50,6 +55,10 @@ MODELS_AGENT_DESCRIPTION = {
         "Create a minimal Digital Twin (DEM only) for a new area of interest",
         "Generate full Digital Twin with elevation, hydrology, buildings and land-use layers for an AOI",
         "Simulate flood extent and water depth using a multiband radar rainfall raster and an existing DEM",
+        "Identify flooded buildings from the latest flood simulation water depth raster",
+        "Show which buildings in Rimini are flooded above 50 cm water depth",
+        "Simulate wildfire propagation from ignition points with southerly wind at 8 m/s",
+        "Run fire spread simulation for 6 hours using DEM and ESA land use",
     ],
     "outputs": [
         "Up to 25 spatially-aligned raster/vector layers across 5 categories (from DigitalTwinTool)",
@@ -59,6 +68,8 @@ MODELS_AGENT_DESCRIPTION = {
         "  - Land Cover: land-use, Manning roughness, NDVI, NDWI, NDBI, sea mask",
         "  - Soil: sand, clay",
         "Water depth raster — flood simulation output (from SaferRainTool)",
+        "Flooded buildings vector layer — per-building flood status with optional stats (from SaferBuildingsTool)",
+        "Fire spread rasters — burned area and fire arrival time at multiple time steps (from SaferFireTool)",
     ],
     "prerequisites": {
         "DigitalTwinTool": (
@@ -71,6 +82,16 @@ MODELS_AGENT_DESCRIPTION = {
             "Requires a DEM/DTM raster. "
             "If no DEM is available in the context layers, add a DigitalTwinTool step (via models_subgraph) BEFORE this step."
         ),
+        "SaferBuildingsTool": (
+            "Requires a water depth raster from a prior flood simulation. "
+            "If no water depth layer is available in context, add a SaferRainTool step BEFORE this step. "
+            "Building geometries can be fetched automatically via provider (default: OVERTURE) if not already available."
+        ),
+        "SaferFireTool": (
+            "Requires a DEM/DTM raster and ignition sources (vector file or layer reference). "
+            "Also requires wind_speed (m/s) and wind_direction (meteorological degrees). "
+            "If no DEM is available, add a DigitalTwinTool step BEFORE this step."
+        ),
     },
     "implicit_step_rules": [
         (
@@ -80,6 +101,14 @@ MODELS_AGENT_DESCRIPTION = {
         (
             "IMPLICIT STEP: if the user asks for a flood simulation using a rainfall raster (not a constant value) "
             "and no rainfall raster layer exists in context, consider prepending a retriever_subgraph step to retrieve it."
+        ),
+        (
+            "IMPLICIT STEP: if the user asks for flooded buildings analysis and no water depth layer is present "
+            "in the available context layers, prepend a models_subgraph step to run a flood simulation first."
+        ),
+        (
+            "IMPLICIT STEP: if the user asks for wildfire simulation and no DEM layer is present "
+            "in the available context layers, prepend a models_subgraph step to create the Digital Twin first."
         ),
     ],
 }
@@ -498,10 +527,14 @@ class ModelsExecutor(MultiAgentNode):
             
             # Build better output summary based on tool
             output_desc = f"Simulazione: {tool_name}"
-            if tool_name == "safer_rain":
+            if tool_name == N.SAFER_RAIN_TOOL:
                 output_desc = f"SaferRain: Water depth raster creato ({tool_args.get('rain', 'N/A')} mm rainfall)"
-            elif tool_name == "digital_twin":
+            elif tool_name == N.DIGITAL_TWIN_TOOL:
                 output_desc = f"DigitalTwin: Environment created for {tool_args.get('bbox', 'N/A')}"
+            elif tool_name == N.SAFERBUILDINGS_TOOL:
+                output_desc = f"SaferBuildings: Flooded buildings layer created from {tool_args.get('water', 'N/A')}"
+            elif tool_name == N.SAFER_FIRE_TOOL:
+                output_desc = f"SaferFire: Fire spread simulation completed (wind={tool_args.get('wind_speed', 'N/A')} m/s, {tool_args.get('wind_direction', 'N/A')}°)"
             
             step_result = StepResult(
                 step_index=step_index,
@@ -525,8 +558,12 @@ class ModelsExecutor(MultiAgentNode):
         """Format tool response message with tool-specific logic."""
         
         # Tool-specific formatting
-        if tool_name == "safer_rain":
+        if tool_name == N.SAFER_RAIN_TOOL:
             content = self._format_safer_rain_response(tool_args, result)
+        elif tool_name == N.SAFERBUILDINGS_TOOL:
+            content = self._format_safer_buildings_response(tool_args, result)
+        elif tool_name == N.SAFER_FIRE_TOOL:
+            content = self._format_safer_fire_response(tool_args, result)
         else:
             # Generic fallback
             content = self._format_generic_response(tool_name, tool_args, result)
@@ -538,15 +575,55 @@ class ModelsExecutor(MultiAgentNode):
         """Format SaferRain specific response."""
         dem = tool_args.get('dem', 'unknown')
         rain = tool_args.get('rain', 'unknown')
-        uri = result.get('tool_output', {}).get('data', {}).get('uri', 'N/A')
-        
+        source = result.get('tool_output', {}).get('data', {}).get('source', 'N/A')
+
         return (
             f"✓ Flood simulation completed successfully\n"
             f"Model: SaferRain\n"
             f"DEM: {dem}\n"
             f"Rainfall: {rain}\n"
-            f"Output URI: {uri}\n"
+            f"Output URI: {source}\n"
             f"Description: Water depth raster from flood propagation simulation"
+        )
+
+    @staticmethod
+    def _format_safer_buildings_response(tool_args: Dict[str, Any], result: Any) -> str:
+        """Format SaferBuildings specific response."""
+        water = tool_args.get('water', 'unknown')
+        provider = tool_args.get('provider')
+        buildings = tool_args.get('buildings')
+        source = result.get('tool_output', {}).get('data', {}).get('source', 'N/A')
+        buildings_desc = f"provider={provider}" if provider else f"buildings={buildings}"
+
+        return (
+            f"✓ Building flood analysis completed successfully\n"
+            f"Model: SaferBuildings\n"
+            f"Water depth raster: {water}\n"
+            f"Buildings source: {buildings_desc}\n"
+            f"Output URI: {source}\n"
+            f"Description: Vector layer with per-building flood status"
+        )
+
+    @staticmethod
+    def _format_safer_fire_response(tool_args: Dict[str, Any], result: Any) -> str:
+        """Format SaferFire specific response."""
+        dem = tool_args.get('dem', 'unknown')
+        ignitions = tool_args.get('ignitions', 'unknown')
+        wind_speed = tool_args.get('wind_speed', 'N/A')
+        wind_direction = tool_args.get('wind_direction', 'N/A')
+        time_max = tool_args.get('time_max', 'N/A')
+        layers = result.get('tool_output', {}).get('data', {})
+        outputs_summary = ', '.join(layers.keys()) if layers else 'N/A'
+
+        return (
+            f"✓ Wildfire propagation simulation completed successfully\n"
+            f"Model: SaferFire\n"
+            f"DEM: {dem}\n"
+            f"Ignitions: {ignitions}\n"
+            f"Wind: {wind_speed} m/s from {wind_direction}°\n"
+            f"Duration: {time_max}s\n"
+            f"Output layers: {outputs_summary}\n"
+            f"Description: Fire spread rasters from wildland fire propagation simulation"
         )
 
     @staticmethod

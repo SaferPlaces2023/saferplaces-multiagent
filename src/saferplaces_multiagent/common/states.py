@@ -18,9 +18,10 @@ from typing import Optional, Union, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
 from dataclasses import dataclass, asdict
+from .base_models import compute_geometry_metadata
 
 from . import utils
-from .base_models import AdditionalContext, ConfirmationState, PlanConfirmationStatus
+from .base_models import AdditionalContext, ConfirmationState, PlanConfirmationStatus, MapView, MapCommand, DrawnShape
 from .execution_narrative import ExecutionNarrative
 
 
@@ -34,6 +35,7 @@ class MABaseGraphState(TypedDict):
     """Basic state"""
     # DOC: all messages
     messages: Annotated[list[AnyMessage], add_messages]
+    CoT: Annotated[Sequence[dict], merge_CoT] = []
 
     # DOC: user session
     project_id: str = None  
@@ -44,6 +46,11 @@ class MABaseGraphState(TypedDict):
     nowtime: str = datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat()
     user_drawn_shapes: Annotated[Sequence[dict], merge_user_drawn_shapes] = []
     avaliable_tools: list[str] | None = []
+
+    # DOC: map state (PLN-014)
+    map_view: Optional[dict]  # serialized from MapView.model_dump() — dict, not MapView instance
+    map_commands: Annotated[List[dict], merge_map_commands]
+    shapes_registry: Annotated[Sequence[dict], merge_shape_registry]
 
     # DOC: multi-agent metadata
     parsed_request: Dict[str, Any]
@@ -79,6 +86,13 @@ class MABaseGraphState(TypedDict):
     layers_request: AIMessage
     layers_invocation: AIMessage
     layers_response: List[Any]
+
+    # DOC: on-demand map agent state (PLN-014)
+    map_request: Optional[str]
+    map_invocation: AIMessage
+    map_invocation_confirmation: ConfirmationState  # reserved — subgraph pattern not yet implemented
+    map_reinvocation_request: AnyMessage  # reserved — subgraph pattern not yet implemented
+    map_current_step: Optional[int]
 
 
 # ============================================================================
@@ -133,6 +147,11 @@ class StateManager:
         state['layers_request'] = None
         state['layers_invocation'] = None
         state['layers_response'] = []
+
+        # Clear map agent temporary state (PLN-014)
+        state['map_request'] = None
+        state['map_commands'] = []
+        StateManager._clear_specialized_agent_state(state, 'map')
 
     @staticmethod
     def initialize_specialized_agent_cycle(
@@ -210,6 +229,11 @@ class StateManager:
         state['layers_request'] = None
         state['layers_invocation'] = None
         state['layers_response'] = []
+
+        # Clear map agent temporary state; map_view and drawn_shapes_registry are persistent (PLN-014)
+        state['map_request'] = None
+        state['map_commands'] = []
+        StateManager._clear_specialized_agent_state(state, 'map')
         
         # Reset additional context dirty flag
         if 'additional_context' in state and 'relevant_layers' in state['additional_context']:
@@ -257,6 +281,18 @@ def merge_layer_registry(left: Sequence[dict], right: Sequence[dict]) -> Sequenc
 
 def merge_user_drawn_shapes(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
     return utils.merge_dict_sequences(left, right, unique_key='collection_id', method='overwrite')
+
+def merge_CoT(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
+    left = [il if isinstance(il, dict) else il.model_dump() for il in left]
+    right = [ir if isinstance(ir, dict) else ir.model_dump() for ir in right]
+    return utils.merge_dict_sequences(left, right, unique_key='id_', method='overwrite')
+
+def merge_map_commands(left: List[dict], right: List[dict]) -> List[dict]:
+    """Concatenate map commands — accumulates all commands produced in a cycle."""
+    return list(left or []) + list(right or [])
+
+def merge_shape_registry(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
+    return utils.merge_dict_sequences(left, right, unique_key='shape_id', method='overwrite')
 
 
 
@@ -402,4 +438,72 @@ def build_user_drawn_shapes_system_message(user_drawn_shapes: list) -> SystemMes
     lines.append("- Always refer to the `collection_id` when mentioning or selecting a shape in your tool arguments.")
     lines.append("[/USER DRAWN SHAPES]")
     
+    return SystemMessage(content="\n".join(lines))
+
+
+def _shape_metadata_lines(metadata: dict) -> list[str]:
+    """Format pre-computed geometry metadata as indented lines for the system message."""
+    if not metadata:
+        return []
+    lines: list[str] = []
+    lines.append(f"  - crs: {metadata.get('crs', 'EPSG:4326')}")
+    if "lon" in metadata and "lat" in metadata:
+        lines.append(f"  - coordinates: lon={metadata['lon']}, lat={metadata['lat']}")
+    if "bbox" in metadata:
+        b = metadata["bbox"]
+        lines.append(
+            f"  - bbox: west={b['west']}, south={b['south']}, east={b['east']}, north={b['north']}"
+        )
+    if "area_km2" in metadata:
+        lines.append(f"  - area: ~{metadata['area_km2']} km²")
+    if "length_km" in metadata:
+        lines.append(f"  - length: ~{metadata['length_km']} km")
+    if "num_features" in metadata:
+        lines.append(f"  - num_features: {metadata['num_features']}")
+    return lines
+
+
+def build_shapes_registry_system_message(shapes_registry: list) -> SystemMessage:
+    """
+    Generate a system message from the shapes_registry (registered DrawnShape entries).
+
+    Args:
+        shapes_registry (list[dict]): List of DrawnShape dicts — each has:
+            - shape_id (str)
+            - shape_type (str): point | bbox | linestring | polygon
+            - geometry (dict): GeoJSON geometry
+            - label (optional str)
+            - created_at (str)
+    Returns:
+        SystemMessage ready to be injected as context.
+    """
+    if not shapes_registry:
+        return SystemMessage(content="[SHAPES REGISTRY]\nNo shapes registered by the user.\n[/SHAPES REGISTRY]")
+
+    lines = []
+    lines.append("[SHAPES REGISTRY]")
+    lines.append(
+        "The following shapes have been drawn and registered by the user. "
+        "Each shape has a `shape_id` that should be referenced in conversations or tool arguments.\n"
+    )
+    lines.append("Registered shapes:")
+    for idx, shape in enumerate(shapes_registry, start=1):
+        lines.append(f"{idx}.")
+        lines.append(f"  - shape_id: {shape.get('shape_id', '?')}")
+        lines.append(f"  - shape_type: {shape.get('shape_type', 'unknown')}")
+        if shape.get('label'):
+            lines.append(f"  - label: {shape['label']}")
+        geom = shape.get('geometry', {})
+        if isinstance(geom, dict):
+            lines.append(f"  - geometry_type: {geom.get('type', 'unknown')}")
+        meta = shape.get('metadata') or compute_geometry_metadata(geom if isinstance(geom, dict) else {})
+        lines.extend(_shape_metadata_lines(meta))
+        if shape.get('created_at'):
+            lines.append(f"  - created_at: {shape['created_at']}")
+
+    lines.append("\nInstructions:")
+    lines.append("- When the user refers to an area they drew, match it to a shape in this registry by shape_id or label.")
+    lines.append("- Always refer to the `shape_id` when selecting a shape in tool arguments.")
+    lines.append("[/SHAPES REGISTRY]")
+
     return SystemMessage(content="\n".join(lines))

@@ -20,6 +20,7 @@ import numpy as np
 
 import pyogrio
 from shapely.geometry import box
+import pandas as pd
 import geopandas as gpd
 
 import rasterio
@@ -203,6 +204,45 @@ def get_geodataframe_crs(geo_df):
 
 def vector_specs(src: str) -> dict:
     """Get the specifications of a vector file."""
+
+    def safe_float(x):
+        if pd.isna(x):
+            return 0.0
+        return float(x)
+
+    def attribute_specs(geo_df, attr):
+        col = geo_df[attr]
+        if pd.api.types.is_numeric_dtype(col):
+            desc = col.describe()
+            return {
+                "type": "numeric",
+                # "count": safe_float(desc.get("count")),
+                "mean": safe_float(desc.get("mean")),
+                # "std": safe_float(desc.get("std")),
+                "min": safe_float(desc.get("min")),
+                # "25%": safe_float(desc.get("25%")),
+                # "50%": safe_float(desc.get("50%")),
+                # "75%": safe_float(desc.get("75%")),
+                "max": safe_float(desc.get("max")),
+            }
+        else:
+            max_n_unique = 30
+            unique_counts = col.value_counts()
+            n_unique = len(unique_counts)
+            n_total = len(col)
+            if n_unique > 0.5 * n_total:
+                return {
+                    "type": "categorical",
+                    "unique_values": []
+                }
+            if n_unique > max_n_unique:
+                unique_counts = unique_counts.head(max_n_unique)
+            return {
+                "type": "categorical",
+                "unique_values": unique_counts.index.tolist()
+            }
+
+
     geo_df = gpd.read_file(src)
     epsg_code = get_geodataframe_crs(geo_df)
     bounds = gpd.GeoDataFrame(geometry=[box(*geo_df.total_bounds)], crs=geo_df.crs).to_crs(epsg=4326).total_bounds.tolist()
@@ -216,7 +256,8 @@ def vector_specs(src: str) -> dict:
         },
         'n_features': len(geo_df),
         'geometry_type': geo_df.geometry.type.unique().tolist(),
-        'attributes': {col: str(geo_df[col].dtype) for col in geo_df.columns},
+        # 'attributes': {col: str(geo_df[col].dtype) for col in geo_df.columns},
+        'attributes': {col: attribute_specs(geo_df, col) for col in geo_df.columns},
         ** common_specs(src)
     }
 

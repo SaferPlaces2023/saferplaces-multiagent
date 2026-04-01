@@ -3,9 +3,15 @@ from .common.states import MABaseGraphState
 
 class MultiAgentNode():
 
-    def __init__(self, name: str, log_state: bool = True):
+    def __init__(
+        self,
+        name: str,
+        log_state: bool = True,
+        update_CoT: bool = False
+    ):
         self.name = name
         self.log_state = log_state
+        self.update_CoT = update_CoT
 
     def _pre_run(self, state: MABaseGraphState) -> MABaseGraphState:
         if self.log_state:
@@ -24,9 +30,15 @@ class MultiAgentNode():
     def _post_run(self, state: MABaseGraphState) -> MABaseGraphState:
         if self.log_state:
             self._write_log_state(state.copy())
+        if self.update_CoT:
+            state['CoT'] = self._define_CoT(state) or []
 
     def _compile_log_state_filename(self, state: MABaseGraphState) -> str:
         self._log_state_filename = f'__state_log__user_id={state["user_id"]}__project_id={state["project_id"]}.json'
+
+    # def _define_CoT(self, state: MABaseGraphState):
+    #     # DOC: Should be implemented
+    #     return list()
 
     def _write_log_state(self, state: MABaseGraphState):
         

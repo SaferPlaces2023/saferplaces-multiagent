@@ -48,5 +48,17 @@
       ["Run a flood simulation and retrieve rainfall data for Milan", "no, only do the flood simulation without retrieving data"],
       ["Show me available raster layers and run a flood model", "no, just list the layers"]
     ]
+  },
+  "T007": {
+    "title": "Map Agent — viewport, symbology, create shape, register shape",
+    "description": "Tests the MapAgent: MoveMapViewTool (move viewport to a named location), LayerSymbologyTool (restyle a layer), CreateShapeTool (generate a bbox from a place name), RegisterShapeTool (register a user-drawn shape). Full standalone test in tests/T007_map_agent.py.",
+    "command": "python tests/T007_map_agent.py",
+    "TEST_MESSAGES": [
+      ["Sposta la mappa su Firenze", "yes"],
+      ["Centra la vista su Roma", "yes"],
+      ["Colora il layer flood con una palette blu-rosso", "yes"],
+      ["Crea una bbox attorno a Milano", "yes"],
+      ["Registra la shape che ho disegnato", "yes"]
+    ]
   }
 }

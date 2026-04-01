@@ -30,5 +30,6 @@ from . import (
     request_parser_prompts,
     final_responder_prompts,
     safercast_agent_prompts,
-    models_agent_prompts
+    models_agent_prompts,
+    map_agent_prompts,
 )

@@ -40,7 +40,11 @@ class FinalResponder(MultiAgentNode):
 
         response = self.llm.invoke(invoke_messages)
 
-        state["messages"] = [AIMessage(content=response.content)]
+        # Capture map_commands before cleanup_on_final_response zeroes them (BUG-1 fix — PLN-015)
+        map_commands = list(state.get("map_commands") or [])
+        additional_kwargs = {"map_commands": map_commands} if map_commands else {}
+
+        state["messages"] = [AIMessage(content=response.content, additional_kwargs=additional_kwargs)]
 
         print(f"[{NodeNames.FINAL_RESPONDER}] ✓ Response ready")
         

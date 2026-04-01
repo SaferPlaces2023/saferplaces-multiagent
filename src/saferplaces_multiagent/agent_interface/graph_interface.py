@@ -64,29 +64,36 @@ class ConversationHandler:
     
         def human_message_to_dict(msg: HumanMessage) -> dict:
             return {
+                "id": msg.id,
                 "role": "user",
                 "content": msg.content,
                 "resume_interrupt": msg.resume_interrupt if hasattr(msg, 'resume_interrupt') else None,
             }
         
         def ai_message_to_dict(msg: AIMessage) -> dict:
-            return {
+            result = {
+                "id": msg.id,
                 "role": "ai",
                 "content": msg.content,
                 "tool_calls": msg.tool_calls if msg.tool_calls else [],
             }
+            map_commands = (msg.additional_kwargs or {}).get("map_commands", [])
+            if map_commands:
+                result["map_commands"] = map_commands
+            return result
             
         def tool_message_to_dict(msg: ToolMessage) -> dict:
             return {
+                "id": msg.id,
                 "role": "tool",
                 "content": msg.content,
                 "name": msg.name,
-                "id": msg.id,
                 "tool_call_id": msg.tool_call_id
             }
             
         def interrupt_to_dict(msg: Interrupt) -> dict:
             return {
+                "id": msg.id,
                 "role": "interrupt",
                 "content": msg.value['content'],
                 "interrupt_type": msg.value['interrupt_type'],
@@ -216,6 +223,8 @@ class GraphInterface:
             system_messages.append(GraphStates.build_layer_registry_system_message(state_updates.get('layer_registry', [])))
         if 'user_drawn_shapes' in state_updates:
             system_messages.append(GraphStates.build_user_drawn_shapes_system_message(state_updates.get('user_drawn_shapes', [])))
+        if 'shapes_registry' in state_updates:
+            system_messages.append(GraphStates.build_shapes_registry_system_message(state_updates.get('shapes_registry', [])))
         if system_messages: #and self.interrupt is None:
             state_updates['messages'] = state_updates.get('messages', []) + system_messages
         

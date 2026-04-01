@@ -17,7 +17,7 @@ Nessun prefisso è condiviso tra categorie diverse.
 | `F` | Feature — scenario, dati, utility | `F###` | `F001`–`F009` | `docs/functional-spec.md` |
 | `G` | Feature — flusso di esecuzione del grafo (nodi, routing, interrupt, difetti) | `G###` | `G001`–`G009` | `docs/functional-spec-graph.md` |
 | `S` | Feature — servizi esterni, API, env vars | `S###` | `S001` | `docs/functional-spec-services.md` |
-| `M` | Feature — mappa, layer geospaziali (Cesium, Leafmap, geospatial ops) | `M###` | `M001` | `docs/functional-spec-map.md` |
+| `M` | Feature — mappa, layer geospaziali (Cesium, Leafmap, geospatial ops) | `M###` | `M001`–`M010` | `docs/functional-spec-map.md` |
 | `PLN` | Piano di implementazione | `PLN-###` | `PLN-001` | `implementations/PLN-###-*.md` |
 | `T` | Task interno a un piano | `T-###-NN` | `T-001-01` | `###` = numero piano, `NN` = sequenza |
 | `SC` | Success Criteria di un piano | `SC-###-NN` | `SC-001-01` | `###` = numero piano, `NN` = sequenza |

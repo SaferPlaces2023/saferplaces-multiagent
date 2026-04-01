@@ -9,6 +9,7 @@ from ..names import NodeNames
 
 from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
 from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
+from ..specialized.map_agent import MAP_AGENT_DESCRIPTION
 
 from . import Prompt
 
@@ -59,22 +60,42 @@ class OrchestratorPrompts:
                     "Variables: PRECIPITATION, TEMPERATURE, WINDSPEED, WINDDIRECTION, RELATIVEHUMIDITY, etc.\n"
                     "Use when the user asks for forecasts or future weather data.\n"
                     "\n"
+                    "### 5. FLOODED BUILDINGS ANALYSIS (SaferBuildings)\n"
+                    "Always requires:\n"
+                    "- A water depth raster from a prior flood simulation. If no water depth layer exists → add a SaferRain step FIRST.\n"
+                    "Building geometries:\n"
+                    "- If a buildings layer is available in context → use it as `buildings` input.\n"
+                    "- Otherwise → use `provider=OVERTURE` (global) or a region-specific provider.\n"
+                    "Output: vector layer with per-building `is_flooded` flag; optional per-building stats.\n"
+                    "Note: if the user asks for flooded buildings AND a simulation is also needed, "
+                    "schedule SaferRain BEFORE SaferBuildings.\n"
+                    "\n"
+                    "### 6. WILDFIRE SIMULATION (SaferFire)\n"
+                    "Always requires:\n"
+                    "- A DEM raster. If no DEM available → add a Digital Twin step FIRST.\n"
+                    "- Ignition sources (vector file or layer reference).\n"
+                    "- Wind speed (m/s) and wind direction (meteorological degrees).\n"
+                    "Optional: land use (file or provider ESA/LANDUSE/V100 for global coverage).\n"
+                    "Output: fire spread rasters (burned area, fire arrival time) at multiple time steps.\n"
+                    "\n"
                     "## Reasoning Process\n"
                     "1. Identify the final outcome the user wants.\n"
                     "2. Check the parsed request for resolved entities, parameters, and implicit requirements.\n"
-                    "3. For each needed capability, check if prerequisites are satisfied by available layers.\n"
+                    "3. If the user refers to a drawn shape (e.g. 'the area I drew', 'my bbox', a shape_id), "
+                    "use its geometry/bbox as the spatial parameter for the step goal — it will appear in the planning context under 'Shape registrate'.\n"
+                    "4. For each needed capability, check if prerequisites are satisfied by available layers.\n"
                     "   - If a prerequisite is present → skip the producing step.\n"
                     "   - If a prerequisite is missing → add the producing agent as an earlier step.\n"
-                    "4. Order steps so every agent receives what it needs from the previous step.\n"
-                    "5. Keep steps to the minimum necessary.\n"
+                    "5. Order steps so every agent receives what it needs from the previous step.\n"
+                    "6. Keep steps to the minimum necessary.\n"
                     "\n"
                     "## Available Agents\n"
                     "\n"
                     "### models_subgraph — Simulations & Geospatial Models\n"
-                    "**Tools**: DigitalTwinTool, SaferRainTool\n"
-                    "**Use when**: creating geospatial base layers (from DEM-only to full Digital Twin) for new areas, or running flood simulations.\n"
-                    "**Prerequisites**: DigitalTwinTool needs only a bbox. SaferRainTool needs a DEM (create via DigitalTwin if missing).\n"
-                    "**Outputs**: DEM raster or full multi-layer Digital Twin (DigitalTwin); water depth raster (SaferRain).\n"
+                    "**Tools**: DigitalTwinTool, SaferRainTool, SaferBuildingsTool, SaferFireTool\n"
+                    "**Use when**: creating base layers, running flood or wildfire simulations, detecting flooded buildings.\n"
+                    "**Prerequisites**: DigitalTwinTool needs only a bbox. SaferRainTool needs a DEM. SaferBuildingsTool needs a water depth raster. SaferFireTool needs a DEM and ignition sources.\n"
+                    "**Outputs**: DEM/Digital Twin; water depth raster (SaferRain); flooded buildings vector (SaferBuildings); fire spread rasters (SaferFire).\n"
                     "\n"
                     "### retriever_subgraph — Meteorological Data Retrieval\n"
                     "**Tools**: DPCRetrieverTool (Italy, past data), MeteoblueRetrieverTool (global, forecasts)\n"
@@ -82,8 +103,15 @@ class OrchestratorPrompts:
                     "**Prerequisites**: none (only needs product/variable, area, and time range).\n"
                     "**Outputs**: meteorological raster layer (precipitation, temperature, radar data).\n"
                     "\n"
+                    "### map_agent — Map Frontend Interactions\n"
+                    "**Tools**: MoveMapViewTool, LayerSymbologyTool\n"
+                    "**Use when**: the user wants to move/center/zoom the map, or change the visual style of a layer "
+                    "(colors, opacity, classification ramp).\n"
+                    "**Prerequisites**: for LayerSymbologyTool the target layer must exist in available layers.\n"
+                    "**Outputs**: updated map viewport state; MapLibre GL JS style applied to the layer.\n"
+                    "\n"
                     "## Rules\n"
-                    "- Use ONLY agents listed above (models_subgraph or retriever_subgraph).\n"
+                    "- Use ONLY agents listed above (models_subgraph, retriever_subgraph, or map_agent).\n"
                     "- Do NOT execute tools — only plan.\n"
                     "- Do NOT ask the user questions.\n"
                     "- Return an empty plan (steps: []) for informational queries that need no actions.\n"
@@ -98,14 +126,17 @@ class OrchestratorPrompts:
                     "- Do NOT use DPC for future forecasts — DPC provides only past/recent data.\n"
                     "- Do NOT use Meteoblue for past/historical data — Meteoblue provides only future forecasts.\n"
                     "- Do NOT create a Digital Twin if a DEM for the target area already exists in available layers.\n"
+                    "- Do NOT schedule SaferBuildings without a water depth raster — add a SaferRain step first if needed.\n"
+                    "- Do NOT schedule SaferFire without a DEM — add a Digital Twin step first if no DEM exists.\n"
                     "- Do NOT include unnecessary steps — keep the plan minimal.\n"
                     "- Do NOT duplicate steps for the same goal.\n"
                     "- Do NOT omit the bbox or key parameters from the goal description — "
                     "the specialized agent needs them to select tool arguments.\n"
+                    "- Do NOT use map_agent for simulations or data retrieval — only for viewport and style changes.\n"
                     "\n"
                     "## Output format\n"
                     "- steps: ordered list of execution steps\n"
-                    "  - steps[].agent: agent name (models_subgraph or retriever_subgraph)\n"
+                    "  - steps[].agent: agent name (models_subgraph, retriever_subgraph, or map_agent)\n"
                     "  - steps[].goal: DETAILED description that includes:\n"
                     "    - WHAT the tool will do\n"
                     "    - WHY it's needed (e.g., 'no DEM available for this area')\n"
@@ -129,6 +160,21 @@ class OrchestratorPrompts:
                     "\n"
                     "User: 'get precipitation forecast for London':\n"
                     '  steps: [{"agent": "retriever_subgraph", "goal": "Retrieve Meteoblue PRECIPITATION forecast for London area"}]\n'
+                    "\n"
+                    "User: 'identify flooded buildings in Rome' — NO water depth in context, NO DEM:\n"
+                    '  steps: [{"agent": "models_subgraph", "goal": "Create Digital Twin (DEM only) for Rome (bbox ~[12.35, 41.80, 12.60, 41.99])"}, '
+                    '{"agent": "models_subgraph", "goal": "Run SaferRain flood simulation on the Rome DEM (confirm rainfall amount with user if unknown)"}, '
+                    '{"agent": "models_subgraph", "goal": "Run SaferBuildings to detect flooded buildings using the water depth raster, provider=OVERTURE"}]\n'
+                    "\n"
+                    "User: 'show flooded buildings' — water depth raster already in context:\n"
+                    '  steps: [{"agent": "models_subgraph", "goal": "Run SaferBuildings to detect flooded buildings using the existing water depth raster, provider=OVERTURE"}]\n'
+                    "\n"
+                    "User: 'simulate wildfire from these ignition points with 8 m/s southerly wind' — DEM in context:\n"
+                    '  steps: [{"agent": "models_subgraph", "goal": "Run SaferFire wildfire simulation using existing DEM, ignition points layer, wind_speed=8 m/s, wind_direction=180°"}]\n'
+                    "\n"
+                    "User: 'simulate wildfire' — NO DEM in context:\n"
+                    '  steps: [{"agent": "models_subgraph", "goal": "Create Digital Twin (DEM only) for the target area"}, '
+                    '{"agent": "models_subgraph", "goal": "Run SaferFire wildfire simulation using the DEM, user-provided ignition points, wind_speed and wind_direction"}]\n'
                     "\n"
                     "User: general question / greeting:\n"
                     "  steps: []"
@@ -186,6 +232,14 @@ class OrchestratorPrompts:
                 "outputs": SAFERCAST_AGENT_DESCRIPTION["outputs"],
                 "prerequisites": SAFERCAST_AGENT_DESCRIPTION["prerequisites"],
                 "implicit_step_rules": SAFERCAST_AGENT_DESCRIPTION["implicit_step_rules"],
+            },
+            {
+                "name": NodeNames.MAP_AGENT,
+                "description": MAP_AGENT_DESCRIPTION["description"],
+                "examples": MAP_AGENT_DESCRIPTION["examples"],
+                "outputs": MAP_AGENT_DESCRIPTION["outputs"],
+                "prerequisites": MAP_AGENT_DESCRIPTION["prerequisites"],
+                "implicit_step_rules": MAP_AGENT_DESCRIPTION["implicit_step_rules"],
             },
         ]
 

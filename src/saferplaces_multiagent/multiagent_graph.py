@@ -8,9 +8,11 @@ from .common.states import MABaseGraphState
 from .ma.names import NodeNames
 from .ma.chat.request_parser import RequestParser
 from .ma.chat.final_responder import FinalResponder
+from .ma.chat.state_processor import StateProcessor
 from .ma.orchestrator.supervisor import SupervisorAgent, SupervisorRouter, SupervisorPlannerConfirm
 from .ma.specialized.safercast_agent import DataRetrieverAgent, DataRetrieverInvocationConfirm, DataRetrieverExecutor
 from .ma.specialized.models_agent import ModelsAgent, ModelsExecutor, ModelsInvocationConfirm
+from .ma.specialized.map_agent import MapAgent
 
 
 def build_supervisor_subgraph():
@@ -104,22 +106,45 @@ def build_multiagent_graph():
     
     # Initialize agents
     request_parser = RequestParser()
+    state_processor = StateProcessor()
     
     supervisor_subgraph = build_supervisor_subgraph()
     retriever_subgraph = build_specialized_retriever_subgraph()
     models_subgraph = build_specialized_models_subgraph()
+    map_agent = MapAgent()
     
     final_responder = FinalResponder()
     
     # Add nodes using NodeNames constants
+    graph_builder.add_node(NodeNames.STATE_PROCESSOR, state_processor)
     graph_builder.add_node(NodeNames.REQUEST_PARSER, request_parser)
     graph_builder.add_node(NodeNames.SUPERVISOR_SUBGRAPH, supervisor_subgraph)
     graph_builder.add_node(NodeNames.RETRIEVER_SUBGRAPH, retriever_subgraph)
     graph_builder.add_node(NodeNames.MODELS_SUBGRAPH, models_subgraph)
+    graph_builder.add_node(NodeNames.MAP_AGENT, map_agent)
     graph_builder.add_node(NodeNames.FINAL_RESPONDER, final_responder)
     
     # Add edges
-    graph_builder.add_edge(START, NodeNames.REQUEST_PARSER)
+    graph_builder.add_edge(START, NodeNames.STATE_PROCESSOR)
+
+    def _route_from_state_processor(state):
+        from langchain_core.messages import HumanMessage
+        messages = state.get("messages") or []
+        if messages and isinstance(messages[-1], HumanMessage):
+            return NodeNames.REQUEST_PARSER
+        if state.get("map_request"):
+            return NodeNames.MAP_AGENT
+        return END
+
+    graph_builder.add_conditional_edges(
+        NodeNames.STATE_PROCESSOR,
+        _route_from_state_processor,
+        {
+            NodeNames.REQUEST_PARSER: NodeNames.REQUEST_PARSER,
+            NodeNames.MAP_AGENT: NodeNames.MAP_AGENT,
+            END: END,
+        },
+    )
     graph_builder.add_edge(NodeNames.REQUEST_PARSER, NodeNames.SUPERVISOR_SUBGRAPH)
     
     # Conditional edges from supervisor
@@ -129,6 +154,7 @@ def build_multiagent_graph():
         {
             NodeNames.RETRIEVER_SUBGRAPH: NodeNames.RETRIEVER_SUBGRAPH,
             NodeNames.MODELS_SUBGRAPH: NodeNames.MODELS_SUBGRAPH,
+            NodeNames.MAP_AGENT: NodeNames.MAP_AGENT,
             NodeNames.FINAL_RESPONDER: NodeNames.FINAL_RESPONDER,
             END: END,
         }
@@ -137,6 +163,19 @@ def build_multiagent_graph():
     # Link specialized agents back to supervisor
     graph_builder.add_edge(NodeNames.RETRIEVER_SUBGRAPH, NodeNames.SUPERVISOR_SUBGRAPH)
     graph_builder.add_edge(NodeNames.MODELS_SUBGRAPH, NodeNames.SUPERVISOR_SUBGRAPH)
+    # MAP_AGENT loops to supervisor when called from a plan, or ends for state-only invocations
+    graph_builder.add_conditional_edges(
+        NodeNames.MAP_AGENT,
+        lambda state: (
+            NodeNames.SUPERVISOR_SUBGRAPH
+            if state.get("parsed_request") and not state.get("map_request")
+            else END
+        ),
+        {
+            NodeNames.SUPERVISOR_SUBGRAPH: NodeNames.SUPERVISOR_SUBGRAPH,
+            END: END,
+        },
+    )
     # Final edge
     graph_builder.add_edge(NodeNames.FINAL_RESPONDER, END)
     

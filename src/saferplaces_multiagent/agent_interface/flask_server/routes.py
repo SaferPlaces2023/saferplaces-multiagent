@@ -7,7 +7,15 @@ import geopandas as gpd
 
 from markupsafe import escape
 
-from flask import Response, request, jsonify, current_app as app, render_template, send_from_directory
+from flask import (
+    Response, 
+    request,
+    jsonify,
+    current_app as app,
+    render_template,
+    send_from_directory,
+    stream_with_context
+)
 
 from .. import GraphInterface
 from ... import utils, s3_utils
@@ -107,11 +115,13 @@ def state(thread_id):
     if not isinstance(state_updates, dict) or len(state_updates) == 0:
         return ensure_json_state(gi.get_state()), 200
     
-    # DOC: Filter the updated state to only include keys that were requested
+    # DOC: Filter the updated state to only include keys that were requested.
+    # Always add shape-related state so the frontend can sync the draw toolbar.
     updated_state = gi.set_state(state_updates)
-    updated_state = { k: v for k, v in updated_state.items() if k in state_updates }
+    response_keys = set(state_updates.keys()) | {'shapes_registry', 'user_drawn_shapes', 'map_commands'}
+    filtered = {k: v for k, v in updated_state.items() if k in response_keys}
     
-    return jsonify(ensure_json_state(updated_state)), 200
+    return jsonify(ensure_json_state(filtered)), 200
 
 
 @app.route('/t/<thread_id>', methods=['POST'])
@@ -133,8 +143,17 @@ def prompt(thread_id):
         def generate():
             for e in gi.user_prompt(prompt=prompt, state_updates={'avaliable_tools': []}):
                 yield json.dumps(gi.conversation_handler.chat2json(chat=e)) + "\n"
+            yield json.dumps(dict(stop=True)) + "\n"
         
-        return Response(generate(), mimetype='text/plain')
+        # return Response(generate(), mimetype='text/plain')
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",   # importante se usi nginx
+            }
+        )
     
     else:
         gen = (

@@ -61,9 +61,14 @@ class FinalResponderPrompts:
                 "## Available layers\n"
                 "The user's project has layers visible in the context below. Describe them when asked.\n"
                 "\n"
+                "## Registered shapes\n"
+                "The user may have drawn shapes (bounding boxes, polygons, etc.) on the map. "
+                "They are listed in the context below with their shape_id and type. Describe them when asked.\n"
+                "\n"
                 "Instructions:\n"
                 "- Answer questions about the platform precisely using the capabilities listed above.\n"
                 "- When asked about layers, list the layers from the context with their properties.\n"
+                "- When asked about shapes or drawn areas, list the shapes with shape_id, type, and label.\n"
                 "- If the user could benefit from an action (simulation, data retrieval), suggest it as a follow-up.\n"
                 "- " + FinalResponderPrompts.Response._BASE_RULES
             )
@@ -258,6 +263,19 @@ class FinalResponderPrompts:
                         if meta and meta.get("bbox"):
                             line += f" [bbox: {meta['bbox']}]"
                         lines.append(line)
+
+                # Registered shapes
+                shapes_registry = state.get("shapes_registry") or []
+                if shapes_registry:
+                    lines.append(f"\n🗺 Shape registrate: {len(shapes_registry)}")
+                    for s in shapes_registry:
+                        sid = s.get("shape_id", "?")
+                        stype = s.get("shape_type", "unknown")
+                        label = s.get("label", "")
+                        entry = f"   • {sid} ({stype})"
+                        if label:
+                            entry += f" — {label}"
+                        lines.append(entry)
                 
                 lines.append(f"\n📊 Status: {narrative.get_completion_status()}")
                 lines.append("\n=== END SUMMARY ===\n")
@@ -305,6 +323,19 @@ class FinalResponderPrompts:
                         if desc:
                             line += f" — {desc}"
                         context += line + "\n"
+
+                # Registered shapes
+                shapes_registry = state.get('shapes_registry') or []
+                if shapes_registry:
+                    context += f"\nRegistered shapes ({len(shapes_registry)}):\n"
+                    for s in shapes_registry:
+                        sid = s.get('shape_id', '?')
+                        stype = s.get('shape_type', 'unknown')
+                        label = s.get('label', '')
+                        entry = f"  • {sid} ({stype})"
+                        if label:
+                            entry += f" — {label}"
+                        context += entry + "\n"
                 
                 return context
 

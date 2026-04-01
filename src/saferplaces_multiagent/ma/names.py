@@ -8,6 +8,7 @@ class NodeNames:
     """Standard node names used in the multi-agent graph."""
     
     # Chat nodes
+    STATE_PROCESSOR = "state_processor"
     REQUEST_PARSER = "request_parser"
     FINAL_RESPONDER = "final_responder"
     
@@ -29,6 +30,8 @@ class NodeNames:
     MODELS_EXECUTOR = "models_executor"
 
     LAYERS_AGENT = "layers_agent"
+
+    MAP_AGENT = "map_agent"  # PLN-014
 
     
     DIGITAL_TWIN_AGENT = "digital_twin_agent"
