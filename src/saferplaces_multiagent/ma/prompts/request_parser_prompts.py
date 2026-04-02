@@ -1,10 +1,156 @@
 """Request parser prompts for the Request Analyzer (§2 PLN-013)."""
 
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
 from . import Prompt
+from .layers_agent_promps import LayersAgentPrompts
 from ...common.states import MABaseGraphState
+from ...common.context_builder import ContextBuilder
 
 
-class RequestParserPrompts:
+class RequestParserInstructions:
+
+    class Prompts:
+
+        class _RoleAndScope:
+
+            def stable(state: MABaseGraphState, *args, **kwds) -> Prompt:
+
+                message = (
+                    "You are a request analysis specialist for SaferPlaces, an AI-assisted geospatial analysis platform for climate data.\n"
+                    "Your only job is to extract structured intent and entities from the user's natural language input.\n"
+                    "You do not plan actions, execute tools, or generate responses to the user."
+                )
+
+                return Prompt(dict(
+                    header = "[ROLE and SCOPE]",
+                    message = message
+                ))
+            
+        class _GlobalContext:
+
+            def stable(state: MABaseGraphState) -> Prompt:
+
+                layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
+
+                # map_context = MapAgentPrompts.MapContext
+
+                conversation_context = Prompt(dict(
+                    header = "[CONVERSATION HISTORY]",
+                    message = ContextBuilder.conversation_history(state, max_messages=5)
+                ))
+
+                message = (
+                    f"{layer_context.header}\n"
+                    f"{layer_context.message}\n"
+                    "\n"
+                    f"{conversation_context.header}\n"
+                    f"{conversation_context.message}\n"
+                )
+
+                return Prompt(dict(
+                    header = "[GLOBAL CONTEXT]",
+                    message = message
+                ))
+            
+        class _TaskInstruction:
+
+            def stable(state: MABaseGraphState) -> Prompt:
+
+                raw_text = state['messages'][-1].content
+
+                message = (
+                    f"Parse the following user message and return a ParsedRequest JSON.\n"
+                    f"User message: \"{raw_text}\""
+                )
+        
+                return Prompt(dict(
+                    header = "[TASK INSTRUCTION]",
+                    message = message
+                ))
+            
+            def only_instruction(state: MABaseGraphState) -> Prompt:
+
+                message = (
+                    f"Parse the following user message and return a ParsedRequest JSON.\n"
+                )
+        
+                return Prompt(dict(
+                    header = "[TASK INSTRUCTION]",
+                    message = message
+                ))
+            
+        class _ParsedRequest:
+
+            def stable(state: MABaseGraphState) -> Prompt:
+
+                parsed_request = state.get("parsed_request", {})
+                
+                if not parsed_request:
+                    message = "No parsed request available."
+                else:
+                    message = (
+                        f"[intent]: {parsed_request.get('intent', 'N/A')}\n"
+                        f"[request_type]: {parsed_request.get('request_type', 'N/A')}\n"
+                    )
+
+                return Prompt(dict(
+                    header = "[PARSED REQUEST]",
+                    message = message
+                ))
+
+                  
+    class Invocations:
+        
+        class ParseOneShot:
+
+            def stable(state: MABaseGraphState) -> Prompt:
+
+                role_and_scope = RequestParserInstructions.Prompts._RoleAndScope.stable(state)
+                global_context = RequestParserInstructions.Prompts._GlobalContext.stable(state)
+                task_instruction = RequestParserInstructions.Prompts._TaskInstruction.stable(state)
+
+                message = (
+                    f"{role_and_scope.header}\n"
+                    f"{role_and_scope.message}\n"
+                    "\n"
+                    f"{global_context.header}\n"
+                    f"{global_context.message}\n"
+                    "\n"
+                    f"{task_instruction.header}\n"
+                    f"{task_instruction.message}\n"
+                )
+
+                return [ SystemMessage(content=message) ]
+            
+        class ParseMultiPrompt:
+
+            def stable(state: MABaseGraphState) -> Prompt:
+
+                role_and_scope = RequestParserInstructions.Prompts._RoleAndScope.stable(state)
+                global_context = RequestParserInstructions.Prompts._GlobalContext.stable(state)
+                task_instruction = RequestParserInstructions.Prompts._TaskInstruction.stable(state)
+
+                system_prompt = (
+                    f"{role_and_scope.header}\n"
+                    f"{role_and_scope.message}\n"
+                    "\n"
+                    f"{global_context.header}\n"
+                    f"{global_context.message}\n"
+                    "\n"
+                    f"{task_instruction.header}\n"
+                    f"{task_instruction.message}\n"
+                )
+                user_prompt = state['messages'][-1].content
+
+                return [
+                    SystemMessage(content=system_prompt),
+                    HumanMessage(content=user_prompt)
+                ]
+
+
+
+
 
     class MainContext:
 

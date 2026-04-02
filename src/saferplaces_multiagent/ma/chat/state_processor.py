@@ -46,8 +46,3 @@ class StateProcessor(MultiAgentNode):
         shapes_registry = state.get("shapes_registry") or []
         registered_ids = {s.get("shape_id") for s in shapes_registry}
         return [s for s in user_drawn if s.get("collection_id") not in registered_ids]
-
-    @staticmethod
-    def has_human_message(state: MABaseGraphState) -> bool:
-        messages = state.get("messages") or []
-        return bool(messages) and isinstance(messages[-1], HumanMessage)

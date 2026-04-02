@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import pandas as pd
 from .common.states import MABaseGraphState
 
@@ -15,13 +17,16 @@ class MultiAgentNode():
 
     def _pre_run(self, state: MABaseGraphState) -> MABaseGraphState:
         if self.log_state:
-            self._previous_messages = state.get('messages', []).copy()
+            self._previous_messages = deepcopy(state.get('messages', []))
             self._compile_log_state_filename(state)
 
     def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
+        print(f">>> [{self.name}]")
+
         self._pre_run(state)
         state = self.run(state)
         self._post_run(state)
+        
         return state
     
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
@@ -29,16 +34,12 @@ class MultiAgentNode():
 
     def _post_run(self, state: MABaseGraphState) -> MABaseGraphState:
         if self.log_state:
-            self._write_log_state(state.copy())
+            self._write_log_state(deepcopy(state))
         if self.update_CoT:
             state['CoT'] = self._define_CoT(state) or []
 
     def _compile_log_state_filename(self, state: MABaseGraphState) -> str:
         self._log_state_filename = f'__state_log__user_id={state["user_id"]}__project_id={state["project_id"]}.json'
-
-    # def _define_CoT(self, state: MABaseGraphState):
-    #     # DOC: Should be implemented
-    #     return list()
 
     def _write_log_state(self, state: MABaseGraphState):
         
@@ -68,3 +69,7 @@ class MultiAgentNode():
         state_record = pd.DataFrame([state])
         state_record['__node_name__'] = [self.name]
         state_record.to_json(self._log_state_filename, orient='records', lines=True, mode='a')
+
+    # def _define_CoT(self, state: MABaseGraphState):
+    #     # DOC: Should be implemented
+    #     return list()

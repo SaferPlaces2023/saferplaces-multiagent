@@ -2,6 +2,7 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import InMemorySaver
 
+from langchain_core.messages import HumanMessage
 
 from .common.names import NN
 from .common.states import MABaseGraphState
@@ -9,15 +10,17 @@ from .ma.names import NodeNames
 from .ma.chat.request_parser import RequestParser
 from .ma.chat.final_responder import FinalResponder
 from .ma.chat.state_processor import StateProcessor
-from .ma.orchestrator.supervisor import SupervisorAgent, SupervisorRouter, SupervisorPlannerConfirm
+from .ma.orchestrator.supervisor import SupervisorAgent, SupervisorRouter, SupervisorPlannerConfirm, PlanConfirmationLabels
 from .ma.specialized.safercast_agent import DataRetrieverAgent, DataRetrieverInvocationConfirm, DataRetrieverExecutor
 from .ma.specialized.models_agent import ModelsAgent, ModelsExecutor, ModelsInvocationConfirm
+from .ma.specialized.layers_agent import LayersAgent
 from .ma.specialized.map_agent import MapAgent
 
 
 def build_supervisor_subgraph():
     """Build the supervisor subgraph with planning and routing logic."""
     print(f"[Graph] Building supervisor subgraph...")
+    
     supervisor_builder = StateGraph(MABaseGraphState)
     
     supervisor_agent = SupervisorAgent()
@@ -29,14 +32,16 @@ def build_supervisor_subgraph():
     supervisor_builder.add_node(supervisor_router.name, supervisor_router)
     
     supervisor_builder.add_edge(START, supervisor_agent.name)
+
     supervisor_builder.add_edge(supervisor_agent.name, supervisor_planner_confirm.name)
-    # supervisor_builder.add_edge(supervisor_planner_confirm.name, supervisor_router.name)
     supervisor_builder.add_conditional_edges(
         supervisor_planner_confirm.name,
-        lambda state: state.get('plan_confirmation') in ('modify', 'rejected'),
+        lambda state: state.get('plan_confirmation') if state.get('plan') else END,
         {
-            True: supervisor_agent.name,
-            False: supervisor_router.name,
+            PlanConfirmationLabels.ACCEPTED: supervisor_router.name,
+            PlanConfirmationLabels.MODIFY: supervisor_agent.name,
+            PlanConfirmationLabels.ABORTED: supervisor_router.name,
+            END: END
         }
     )
     
@@ -100,61 +105,75 @@ def build_specialized_models_subgraph():
 
 
 def build_multiagent_graph():
+    
     """Build the main multi-agent graph with all nodes and edges."""
+    
     print(f"[Graph] Building multiagent graph...")
+    
     graph_builder = StateGraph(MABaseGraphState)
     
+    def _human_start(state):
+        messages = state.get("messages") or []
+        if messages and isinstance(messages[-1], HumanMessage):
+            return NodeNames.REQUEST_PARSER
+        return NodeNames.STATE_PROCESSOR
+
+    graph_builder.add_conditional_edges(START, _human_start, {
+        NodeNames.REQUEST_PARSER: NodeNames.REQUEST_PARSER,
+        NodeNames.STATE_PROCESSOR: NodeNames.STATE_PROCESSOR,
+    })
+
     # Initialize agents
     request_parser = RequestParser()
     state_processor = StateProcessor()
-    
     supervisor_subgraph = build_supervisor_subgraph()
-    retriever_subgraph = build_specialized_retriever_subgraph()
     models_subgraph = build_specialized_models_subgraph()
+    retriever_subgraph = build_specialized_retriever_subgraph()
     map_agent = MapAgent()
-    
+    layer_agent = LayersAgent()
     final_responder = FinalResponder()
     
-    # Add nodes using NodeNames constants
-    graph_builder.add_node(NodeNames.STATE_PROCESSOR, state_processor)
     graph_builder.add_node(NodeNames.REQUEST_PARSER, request_parser)
+    graph_builder.add_node(NodeNames.STATE_PROCESSOR, state_processor)
     graph_builder.add_node(NodeNames.SUPERVISOR_SUBGRAPH, supervisor_subgraph)
     graph_builder.add_node(NodeNames.RETRIEVER_SUBGRAPH, retriever_subgraph)
     graph_builder.add_node(NodeNames.MODELS_SUBGRAPH, models_subgraph)
     graph_builder.add_node(NodeNames.MAP_AGENT, map_agent)
+    graph_builder.add_node(NodeNames.LAYERS_AGENT, layer_agent)
     graph_builder.add_node(NodeNames.FINAL_RESPONDER, final_responder)
     
     # Add edges
-    graph_builder.add_edge(START, NodeNames.STATE_PROCESSOR)
+    # graph_builder.add_edge(START, NodeNames.STATE_PROCESSOR)
 
-    def _route_from_state_processor(state):
-        from langchain_core.messages import HumanMessage
-        messages = state.get("messages") or []
-        if messages and isinstance(messages[-1], HumanMessage):
-            return NodeNames.REQUEST_PARSER
-        if state.get("map_request"):
-            return NodeNames.MAP_AGENT
-        return END
+    # # def _route_from_state_processor(state):
+        
+    # #     messages = state.get("messages") or []
+    # #     if messages and isinstance(messages[-1], HumanMessage):
+    # #         return NodeNames.REQUEST_PARSER
+    # #     if state.get("map_request"):
+    # #         return NodeNames.MAP_AGENT
+    # #     return END
 
-    graph_builder.add_conditional_edges(
-        NodeNames.STATE_PROCESSOR,
-        _route_from_state_processor,
-        {
-            NodeNames.REQUEST_PARSER: NodeNames.REQUEST_PARSER,
-            NodeNames.MAP_AGENT: NodeNames.MAP_AGENT,
-            END: END,
-        },
-    )
+    # graph_builder.add_conditional_edges(
+    #     NodeNames.STATE_PROCESSOR,
+    #     _route_from_state_processor,
+    #     {
+    #         NodeNames.REQUEST_PARSER: NodeNames.REQUEST_PARSER,
+    #         NodeNames.MAP_AGENT: NodeNames.MAP_AGENT,
+    #         END: END,
+    #     },
+    # )
     graph_builder.add_edge(NodeNames.REQUEST_PARSER, NodeNames.SUPERVISOR_SUBGRAPH)
     
     # Conditional edges from supervisor
     graph_builder.add_conditional_edges(
         NodeNames.SUPERVISOR_SUBGRAPH,
-        lambda state: state.get("supervisor_next_node", END),
+        lambda state: state.get("supervisor_next_node", NodeNames.FINAL_RESPONDER),
         {
             NodeNames.RETRIEVER_SUBGRAPH: NodeNames.RETRIEVER_SUBGRAPH,
             NodeNames.MODELS_SUBGRAPH: NodeNames.MODELS_SUBGRAPH,
             NodeNames.MAP_AGENT: NodeNames.MAP_AGENT,
+            NodeNames.LAYERS_AGENT: NodeNames.LAYERS_AGENT,
             NodeNames.FINAL_RESPONDER: NodeNames.FINAL_RESPONDER,
             END: END,
         }

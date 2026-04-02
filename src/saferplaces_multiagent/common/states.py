@@ -56,6 +56,7 @@ class MABaseGraphState(TypedDict):
     parsed_request: Dict[str, Any]
     additional_context: AdditionalContext
     supervisor_next_node: str
+    supervisor_invocation_reason: str
     # DOC: handling user-agent conversation flow 
     plan: Optional[List[dict]]
     plan_confirmation: PlanConfirmationStatus

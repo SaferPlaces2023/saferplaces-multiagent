@@ -1,10 +1,13 @@
 """Supervisor agent prompts for orchestration."""
 
-from typing import List, Dict
+from typing import Any, List, Dict
+
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 import json
 
 from ...common.states import MABaseGraphState
+from ...common.context_builder import ContextBuilder
 from ..names import NodeNames
 
 from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
@@ -12,8 +15,379 @@ from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
 from ..specialized.map_agent import MAP_AGENT_DESCRIPTION
 
 from . import Prompt
+from .layers_agent_promps import LayersAgentPrompts
+from .request_parser_prompts import RequestParserInstructions
 
 from ...common.utils import get_conversation_context as _get_conversation_context
+
+
+class SupervisorInstructions:
+
+    class PlanGeneration:
+
+        class Prompts:
+
+            class _RoleAndScope:
+
+                @staticmethod
+                def stable(state: MABaseGraphState, *args, **kwds) -> Prompt:
+
+                    message = (
+                        "You are the orchestrator of a multi-agent system for flood risk analysis.\n"
+                        "You receive a parsed user request and must produce an ordered execution plan that delegates work\n"
+                        "to specialized sub-agents. You reason step by step before producing the plan.\n"
+                        "\n"
+                        "Available agents:\n"
+                        "- retriever_agent: fetches observational rainfall data (DPC radar) and weather forecasts (Meteoblue)\n"
+                        "- models_agent: generate digital twins layers or runs meteorological simulation (SaferRain) on a given scenario\n"
+                        "- map_agent: adds, removes, styles or queries project's layer information\n"
+                        "\n"
+                        "Rules:\n"
+                        "- A plan step can only reference one of the agents above.\n"
+                        "- Order steps so that dependencies are respected (e.g. retrieve data before running a model).\n"
+                        "- If the request is self-contained and needs no sub-agent, produce an empty plan [].\n"
+                        "- Never include actions outside the platform's scope.\n"
+                    )
+
+                    return Prompt(dict(
+                        header = "[ROLE and SCOPE]",
+                        message = message
+                    ))
+
+            class _GlobalContext:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    parsed_request_context = RequestParserInstructions.Prompts._ParsedRequest.stable(state)
+
+                    layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
+
+                    # map_context = MapAgentPrompts.MapContext
+
+                    conversation_context = Prompt(dict(
+                        header = "[CONVERSATION HISTORY]",
+                        message = ContextBuilder.conversation_history(state, max_messages=5)
+                    ))
+
+                    message = (
+                        f"{parsed_request_context.header}\n"
+                        f"{parsed_request_context.message}\n"
+                        "\n"
+                        f"{layer_context.header}\n"
+                        f"{layer_context.message}\n"
+                        "\n"
+                        f"{conversation_context.header}\n"
+                        f"{conversation_context.message}\n"
+                    )
+
+                    return Prompt(dict(
+                        header = "[GLOBAL CONTEXT]",
+                        message = message
+                    ))
+                
+            class _TaskInstruction:
+                
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    message = (
+                        "Think step by step:\n"
+                        "1. What is the user ultimately trying to achieve?\n"
+                        "2. What data or preconditions are needed before each step?\n"
+                        "3. Which agent is best suited for each sub-task?\n"
+                        "4. Are there any ambiguities that would block execution?\n"
+                        "\n"
+                        "Then output the plan."
+                    )
+            
+                    return Prompt(dict(
+                        header = "[TASK INSTRUCTION]",
+                        message = message
+                    ))
+                
+        class Invocations:
+        
+            class PlanOneShot:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = SupervisorInstructions.PlanGeneration.Prompts._RoleAndScope.stable(state)
+                    global_context = SupervisorInstructions.PlanGeneration.Prompts._GlobalContext.stable(state)
+                    task_instruction = SupervisorInstructions.PlanGeneration.Prompts._TaskInstruction.stable(state)
+
+                    message = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+
+                    return [ SystemMessage(content=message) ]
+                
+            class PlanMultiPrompt:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = SupervisorInstructions.PlanGeneration.Prompts._RoleAndScope.stable(state)
+                    global_context = SupervisorInstructions.PlanGeneration.Prompts._GlobalContext.stable(state)
+                    task_instruction = SupervisorInstructions.PlanGeneration.Prompts._TaskInstruction.stable(state)
+
+                    system_prompt = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+                    user_prompt = state['messages'][-1].content
+
+                    return [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=user_prompt)
+                    ]
+
+    
+    class PlanModification:
+        
+        class Prompts:
+
+            class _RoleAndScope:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return SupervisorInstructions.PlanGeneration.Prompts._RoleAndScope.stable(state)
+                
+            class _GlobalContext:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return SupervisorInstructions.PlanGeneration.Prompts._GlobalContext.stable(state)
+                
+            class _TaskInstruction:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    message = (
+                        "Think step by step:\n"
+                        "1. What is the user ultimately trying to achieve?\n"
+                        "2. Which steps need to be modified, replaced, or removed?\n"
+                        "3. Are there any ambiguities that would block desired modification?\n"
+                        "\n"
+                        "Then output the new plan."
+                    )
+            
+                    return Prompt(dict(
+                        header = "[TASK INSTRUCTION]",
+                        message = message
+                    ))
+                
+        class Invocations:
+
+            class ReplanOneShot:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = SupervisorInstructions.PlanModification.Prompts._RoleAndScope.stable(state)
+                    global_context = SupervisorInstructions.PlanModification.Prompts._GlobalContext.stable(state)
+                    task_instruction = SupervisorInstructions.PlanModification.Prompts._TaskInstruction.stable(state)
+
+                    message = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+
+                    return [ SystemMessage(content=message) ]
+                
+            class ReplanMultiPrompt:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = SupervisorInstructions.PlanModification.Prompts._RoleAndScope.stable(state)
+                    global_context = SupervisorInstructions.PlanModification.Prompts._GlobalContext.stable(state)
+                    task_instruction = SupervisorInstructions.PlanModification.Prompts._TaskInstruction.stable(state)
+
+                    system_prompt = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+                    user_prompt = state['messages'][-1].content
+
+                    return [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=user_prompt)
+                    ]
+
+
+    class PlanClarification:
+
+        class Prompts:
+
+            class _RoleAndScope:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return SupervisorInstructions.PlanGeneration.Prompts._RoleAndScope.stable(state)
+                
+            class _GlobalContext:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return SupervisorInstructions.PlanGeneration.Prompts._GlobalContext.stable(state)
+                
+            class _TaskInstruction:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    message = (
+                        "Think step by step:\n"
+                        "1. What is the user ultimately trying to achieve?\n"
+                        "2. What the current plan is about?\n"
+                        "3. Which details need to be clarified or expanded?\n"
+                        "\n"
+                        "Then explain the requested details and provide any additional context."
+                    )
+            
+                    return Prompt(dict(
+                        header = "[TASK INSTRUCTION]",
+                        message = message
+                    ))
+                
+        class Invocations:
+
+            class PlanClarifyOneShot:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = SupervisorInstructions.PlanClarification.Prompts._RoleAndScope.stable(state)
+                    global_context = SupervisorInstructions.PlanClarification.Prompts._GlobalContext.stable(state)
+                    task_instruction = SupervisorInstructions.PlanClarification.Prompts._TaskInstruction.stable(state)
+
+                    message = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+
+                    return [ SystemMessage(content=message) ]
+                
+            class PlanClarifyMultiPrompt:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = SupervisorInstructions.PlanClarification.Prompts._RoleAndScope.stable(state)
+                    global_context = SupervisorInstructions.PlanClarification.Prompts._GlobalContext.stable(state)
+                    task_instruction = SupervisorInstructions.PlanClarification.Prompts._TaskInstruction.stable(state)
+
+                    system_prompt = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+                    user_prompt = state['messages'][-1].content
+
+                    return [
+                        SystemMessage(content=system_prompt),
+                        HumanMessage(content=user_prompt)
+                    ]
+
+
+    class PlanConfirmation:
+
+        class ConfirmationInterrupt:
+
+            class StaticMessage:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    
+                    def format_plan_confirmation(plan: List[Dict[str, Any]], parsed_request: dict = None) -> str:
+                        """Build a deterministic confirmation message for an execution plan.
+                        
+                        Args:
+                            plan: List of dicts with keys 'agent' and 'goal'.
+                            parsed_request: Optional parsed request dict with parameters.
+                            
+                        Returns:
+                            Formatted confirmation string ready for the user.
+                        """
+                        AGENT_LABELS = {
+                            "models_subgraph": "Simulazione",
+                            "retriever_subgraph": "Recupero dati",
+                            "layers_agent": "Gestione layer",
+                            "digital_twin_agent": "Digital Twin",
+                            "operational_agent": "Operazioni",
+                        }
+
+                        n = len(plan)
+                        lines = [f"📋 Piano di esecuzione ({n} step):", ""]
+
+                        for i, step in enumerate(plan, 1):
+                            label = AGENT_LABELS.get(step.get("agent", "unknown"), "Unknown")
+                            goal = step.get("goal", "")
+                            lines.append(f"  {i}. [{label}] {goal}")
+
+                        # Show extracted parameters if available
+                        if parsed_request:
+                            params = parsed_request.get("parameters", {})
+                            if params:
+                                non_null = {k: v for k, v in params.items() if v is not None}
+                                if non_null:
+                                    lines.append("")
+                                    lines.append("📎 Parametri rilevati:")
+                                    for k, v in non_null.items():
+                                        lines.append(f"  • {k}: {v}")
+
+                        lines.append("")
+                        lines.append("Rispondi:")
+                        lines.append('  ✓ "ok" per procedere')
+                        lines.append("  ✏️ descrivi le modifiche desiderate")
+                        lines.append('  ❌ "annulla" per cancellare')
+
+                        return "\n".join(lines)
+                    
+                    message = format_plan_confirmation(state['plan'], state.get('parsed_request'))
+
+                    return Prompt(dict(
+                        message = message
+                    ))
+
+
 
 
 class OrchestratorPrompts:

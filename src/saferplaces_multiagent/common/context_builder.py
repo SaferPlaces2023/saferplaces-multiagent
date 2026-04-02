@@ -13,6 +13,8 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, asdict
 import json
 
+from saferplaces_multiagent.common.states import MABaseGraphState
+
 from .base_models import compute_geometry_metadata
 
 from langchain_core.messages import (
@@ -301,3 +303,47 @@ class ContextBuilder:
         lines.append("\n=== FINE CONTESTO ===\n")
         
         return "\n".join(lines)
+    
+
+
+
+    @staticmethod
+    def conversation_history(state: MABaseGraphState, max_messages: int = 10) -> str:
+        """
+        Filter conversation history to include only semantically relevant messages:
+        - Include: HumanMessage, final AIMessages with content (no tool_calls)
+        - Exclude: ToolMessage, AIMessage with tool_calls, SystemMessage
+        - Summarize: If history > threshold, generate a summary
+        """
+        messages = state.get("messages", [])
+        
+        if not messages:
+            return "Nessuna conversazione precedente."
+        
+        filtered = []
+        
+        for msg in messages:
+            
+            if isinstance(msg, HumanMessage):
+                content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                filtered.append(f"- [human]: {content}")
+            
+            elif isinstance(msg, AIMessage):
+                
+                if msg.tool_calls:
+                    continue
+                
+                if msg.content:
+                    content = msg.content if isinstance(msg.content, str) else str(msg.content)
+                    filtered.append(f"- [ai]: {content}")
+            
+            elif isinstance(msg, (ToolMessage, SystemMessage)):
+                continue
+        
+        if not filtered:
+            return "No previous messages."
+        
+        if len(filtered) > max_messages:
+            filtered = filtered[-max_messages:]
+        
+        return "\n".join(filtered)
