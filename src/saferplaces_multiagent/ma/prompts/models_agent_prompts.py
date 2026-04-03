@@ -6,11 +6,295 @@ Prompts are structured hierarchically with `stable()` and version variants for A
 
 import json
 
+from typing import Any, Dict, List, Optional
+
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
+
 from ...common.states import MABaseGraphState
+from ...common.context_builder import ContextBuilder
 
 from . import Prompt
+from .layers_agent_promps import LayersAgentPrompts
+from .request_parser_prompts import RequestParserInstructions
 
 from ...common.utils import get_conversation_context as _get_conversation_context
+
+
+
+class ModelsInstructions:
+
+    class InvokeTools:
+
+        class Prompts:
+
+            class _RoleAndScope:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    message = (
+                        "You are a flood simulation specialist for SaferPlaces.\n"
+                        "You operate the SaferRain hydraulic model.\n"
+                        "Your task is to propose tool calls that configure and run a flood simulation\n"
+                        "to accomplish a given goal. You do NOT interpret results or communicate with the user.\n"
+                        "\n"
+                        "Key concepts:\n"
+                        "\n"
+                        "- A simulation requires: a DEM layer, a rainfall scenario (intensity + duration), output resolution.\n"
+                        "- Rainfall input can come from: radar data (already fetched), manual scenario, or Meteoblue forecast.\n"
+                        "- You must verify that required input layers are available before proposing a run.\n"
+                    )
+
+                    return Prompt(dict(
+                        header = "[ROLE and SCOPE]",
+                        message = message
+                    ))
+
+            class _GlobalContext:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    parsed_request_context = RequestParserInstructions.Prompts._ParsedRequest.stable(state)
+
+                    layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
+
+                    # map_context = MapAgentPrompts.MapContext
+
+                    conversation_context = Prompt(dict(
+                        header = "[CONVERSATION HISTORY]",
+                        message = ContextBuilder.conversation_history(state, max_messages=5)
+                    ))
+
+                    goal_context = Prompt(dict(
+                        header = "[GOAL]",
+                        message = state['plan'][state['current_step']]['goal']
+                    ))
+
+                    message = (
+                        f"{parsed_request_context.header}\n"
+                        f"{parsed_request_context.message}\n"
+                        "\n"
+                        f"{layer_context.header}\n"
+                        f"{layer_context.message}\n"
+                        "\n"
+                        f"{conversation_context.header}\n"
+                        f"{conversation_context.message}\n"
+                        "\n"
+                        f"{goal_context.header}\n"
+                        f"{goal_context.message}\n"
+                    )
+
+                    return Prompt(dict(
+                        header = "[GLOBAL CONTEXT]",
+                        message = message
+                    ))
+
+            class _TaskInstruction:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    message = (
+                        "Propose the necessary tool calls to run the simulation.\n"
+                        "Verify preconditions: if a required input layer is missing, call the appropriate\n"
+                        "preparation tool first. Do not run the simulation if inputs are incomplete."
+                    )
+            
+                    return Prompt(dict(
+                        header = "[TASK INSTRUCTION]",
+                        message = message
+                    ))
+
+        class Invocation:
+
+            class InvokeOneShot:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = ModelsInstructions.InvokeTools.Prompts._RoleAndScope.stable(state)
+                    global_context = ModelsInstructions.InvokeTools.Prompts._GlobalContext.stable(state)
+                    task_instruction = ModelsInstructions.InvokeTools.Prompts._TaskInstruction.stable(state)
+
+                    message = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+
+                    return [ SystemMessage(content=message) ]
+
+    
+    class CorrectToolsInvocation:
+
+        class Prompts:
+
+            class _RoleAndScope:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return ModelsInstructions.InvokeTools.Prompts._RoleAndScope.stable(state)
+    
+            class _GlobalContext:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return ModelsInstructions.InvokeTools.Prompts._GlobalContext.stable(state)
+          
+
+            class _TaskInstruction:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    message = (
+                        "Correct the tool calls according user provided indications.\n"
+                        "Verify preconditions: if a required input layer is missing, call the appropriate\n"
+                        "preparation tool first. Do not run the simulation if inputs are incomplete."
+                    )
+            
+                    return Prompt(dict(
+                        header = "[TASK INSTRUCTION]",
+                        message = message
+                    ))
+
+        class Invocation:
+
+            class ReInvokeOneShot:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = ModelsInstructions.CorrectToolsInvocation.Prompts._RoleAndScope.stable(state)
+                    global_context = ModelsInstructions.CorrectToolsInvocation.Prompts._GlobalContext.stable(state)
+                    task_instruction = ModelsInstructions.CorrectToolsInvocation.Prompts._TaskInstruction.stable(state)
+
+                    message = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+
+                    return [ SystemMessage(content=message) ]
+
+
+    class AutoCorrectToolsInvocation:
+
+        class Prompts:
+
+            class _RoleAndScope:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return ModelsInstructions.InvokeTools.Prompts._RoleAndScope.stable(state)
+    
+            class _GlobalContext:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return ModelsInstructions.InvokeTools.Prompts._GlobalContext.stable(state)
+          
+
+            class _TaskInstruction:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    message = (
+                        "Correct the tool calls basing on your knowledge according the user desire.\n"
+                        "Verify preconditions: if a required input layer is missing, call the appropriate\n"
+                        "preparation tool first. Do not run the simulation if inputs are incomplete."
+                    )
+            
+                    return Prompt(dict(
+                        header = "[TASK INSTRUCTION]",
+                        message = message
+                    ))
+                
+        class Invocation:
+
+            class AutoReInvokeOneShot:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+
+                    role_and_scope = ModelsInstructions.AutoCorrectToolsInvocation.Prompts._RoleAndScope.stable(state)
+                    global_context = ModelsInstructions.AutoCorrectToolsInvocation.Prompts._GlobalContext.stable(state)
+                    task_instruction = ModelsInstructions.AutoCorrectToolsInvocation.Prompts._TaskInstruction.stable(state)
+
+                    message = (
+                        f"{role_and_scope.header}\n"
+                        f"{role_and_scope.message}\n"
+                        "\n"
+                        f"{global_context.header}\n"
+                        f"{global_context.message}\n"
+                        "\n"
+                        f"{task_instruction.header}\n"
+                        f"{task_instruction.message}\n"
+                    )
+
+                    return [ SystemMessage(content=message) ]
+
+
+
+
+    class InvalidInvocationInterrupt:
+
+        class StaticMessage:
+
+            @staticmethod
+            def stable(state: MABaseGraphState) -> Prompt:
+
+                def format_invocation_errors(
+                    invocation_errors: Dict[str, str],
+                ) -> str:
+                    """Build a deterministic message showing validation errors to the user.
+                    
+                    Args:
+                        validation_errors: {arg_name: error_message}
+                        
+                    Returns:
+                        Formatted error report string.
+                    """
+                    tool_name = invocation_errors[0]['tool_name']
+                    error_args = invocation_errors[0]['error_args']
+
+                    lines = [f"⚠️ Errori di validazione per il tool {tool_name}", ""]
+
+                    for arg_name, error_msg in error_args.items():
+                        lines.append(f"    - {arg_name}: {error_msg}")
+
+                    lines.append("")
+                    lines.append("Rispondi:")
+                    lines.append("  ✏️ fornisci i valori corretti")
+                    lines.append('  🔧 "correggi" per correzione automatica')
+                    lines.append('  ⏭️ "salta" per rimuovere il tool problematico')
+                    lines.append('  ❌ "annulla" per cancellare')
+
+                    return "\n".join(lines)
+                
+                invocation_errors = state['models_invocation_errors']
+
+                message = format_invocation_errors(invocation_errors)
+        
+                return Prompt(dict(
+                    header = "[INVALID INVOCATION]",
+                    message = message
+                ))
+
+
+
+
+
 
 
 # State key constants (referenced for clarity, imported from models_agent.py at runtime)

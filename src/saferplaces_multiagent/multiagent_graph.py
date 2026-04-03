@@ -79,6 +79,7 @@ def build_specialized_retriever_subgraph():
 def build_specialized_models_subgraph():
     """Build the specialized models subgraph."""
     print(f"[Graph] Building specialized models subgraph...")
+    
     models_builder = StateGraph(MABaseGraphState)
     
     models_agent = ModelsAgent()
@@ -90,16 +91,29 @@ def build_specialized_models_subgraph():
     models_builder.add_node(models_executor.name, models_executor)
 
     models_builder.add_edge(START, models_agent.name)
+    
     models_builder.add_edge(models_agent.name, models_invocation_confirm.name)
-    # models_builder.add_edge(models_invocation_confirm.name, models_executor.name)
+    
     models_builder.add_conditional_edges(
         models_invocation_confirm.name,
-        lambda state: state.get('models_invocation_confirmation') == 'rejected',
+        lambda state: state.get('models_invocation_confirmation') if state.get('models_invocations') else END,
         {
-            True: models_agent.name,
-            False: models_executor.name,
+            'accepted': models_executor.name,
+            'modify': models_agent.name,
+            'aborted': END,
+            END: END
         }
     )
+    
+    
+    # models_builder.add_conditional_edges(
+    #     models_invocation_confirm.name,
+    #     lambda state: state.get('models_invocation_confirmation') == 'rejected',
+    #     {
+    #         True: models_agent.name,
+    #         False: models_executor.name,
+    #     }
+    # )
     
     return models_builder.compile()
 

@@ -79,6 +79,7 @@ class MABaseGraphState(TypedDict):
 
     # DOC: specialized models agent state
     models_invocation: AIMessage
+    models_invocation_errors: Optional[List[dict]]
     models_invocation_confirmation: ConfirmationState
     models_reinvocation_request: AnyMessage
     models_current_step: Optional[int]

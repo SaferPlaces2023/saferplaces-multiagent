@@ -90,41 +90,7 @@ class SupervisorAgent(MultiAgentNode):
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         
-        # ???: Early exits for non-planning states
-        if self._should_skip_planning(state):
-            return state
-
-        # DOC: Generate execution plan
-        state = self._generate_plan(state)
-
-        # DOC: Check plan creation
-        return state
-
-
-    def _should_skip_planning(self, state: MABaseGraphState) -> bool:
-        """Check if planning should be skipped."""
-
-        # Skip if user aborted
-        if state.get("plan_confirmation") == PLAN_ABORTED:
-            return True
-
-        # Skip if already planning a confirmed step
-        if (
-            state.get("plan") is not None
-            and state.get("plan_confirmation") == PLAN_ACCEPTED
-            and state.get("current_step") is not None
-        ):
-            step_num = state["current_step"]
-            total_steps = len(state["plan"])
-            print(f"[{self.name}] → Step {step_num}/{total_steps}")
-            return True
-
-        return False
-
-
-    def _generate_plan(self, state: MABaseGraphState) -> MABaseGraphState:
-        
-        # DOC: [GUARD] → abort if replan loop has exceeded the maximum allowed iterations
+        # ???: [GUARD] → abort if replan loop has exceeded the maximum allowed iterations
         replan_count = state.get("replan_iteration_count") or 0
         if replan_count >= self._MAX_REPLAN_ITERATIONS:
             print(f"[{self.name}] ⚠ Max replan iterations ({self._MAX_REPLAN_ITERATIONS}) reached — aborting")
@@ -159,12 +125,6 @@ class SupervisorAgent(MultiAgentNode):
                 state["plan"] = plan_steps
                 state["current_step"] = 0
                 state["plan_confirmation"] = PLAN_PENDING
-
-        # DOC: From PlannerConfirm (abort)
-        elif invocation_reason == PLAN_ABORTED:
-            state["plan"] = None
-            state["current_step"] = None
-            state["plan_confirmation"] = None
 
         # DOC: From Specialized agent step done (success)
         elif invocation_reason == "step_done":
@@ -236,8 +196,8 @@ class SupervisorPlannerConfirm(MultiAgentNode):
     @staticmethod
     def _handle_modify(state: MABaseGraphState) -> MABaseGraphState:
         """Handle modify: incremental replanning."""
-        state["plan_confirmation"] = PLAN_MODIFY
-        state["invocation_reason"] = "plan_modify"
+        state["plan_confirmation"] = PLAN_PENDING
+        state["supervisor_invocation_reason"] = PLAN_MODIFY
         state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
         return state
     
@@ -296,6 +256,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
 
         # DOC: If no plan was generated
         if plan is None or len(plan) == 0:
+            state['supervisor_next_node'] = NodeNames.FINAL_RESPONDER
             return state
         
         # DOC: If confirmation is not enabled
@@ -366,13 +327,21 @@ class SupervisorRouter(MultiAgentNode):
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Determine next node in execution graph."""
         
-        # DOC: get current plan
-        plan = state.get("plan") or None
-
         # DOC: Determine next node based on current plan and execution state
-        if plan is None:
+        plan = state.get('plan')
+
+        # DOC: Get plan confirmation status
+        plan_confirmation = state.get('plan_confirmation')
+
+        # DOC: abort
+        if plan_confirmation == PLAN_ABORTED:
+            state["plan"] = None
+            state["current_step"] = None
+            state["plan_confirmation"] = None
+            state["invocation_reason"] = None
             state['supervisor_next_node'] = NodeNames.FINAL_RESPONDER
-        
+            return state
+
         # DOC: get current step — mandatory valued if plan exists
         current_step = state["current_step"]
 
@@ -384,3 +353,5 @@ class SupervisorRouter(MultiAgentNode):
         state['supervisor_next_node'] = NodeNames.FINAL_RESPONDER
 
         return state
+
+            
