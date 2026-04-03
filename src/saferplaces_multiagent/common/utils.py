@@ -266,6 +266,15 @@ def is_vector_4326(geo_df):
     eps_string = get_geodataframe_crs(geo_df)
     return eps_string == 'EPSG:4326'
 
+def vector_to_geojson4326_local(path: str) -> str:
+    """Ensure a local GeoJSON file is in EPSG:4326, reprojecting in-place if needed.
+    Returns the (same) path."""
+    gdf = gpd.read_file(path)
+    if gdf.crs is None or gdf.crs.to_epsg() != 4326:
+        gdf = gdf.to_crs(epsg=4326)
+        gdf.to_file(path, driver='GeoJSON')
+    return path
+
 def fast_is_vector_4326(src: str) -> bool:
     tmp = s3_utils.s3_download(s3https_to_s3uri(src), justfname(src))
     info = pyogrio.read_info(tmp)
@@ -536,6 +545,17 @@ def tif_to_cog3857(src: str, dst: str = None, debug: bool = False, **kwargs) -> 
     
     return dst
 
+
+def raster_like_lazy(da, da_template, resampling=Resampling.nearest, chunks={}):
+    da = rxr.open_rasterio(da, chunks=chunks).squeeze() if isinstance(da, str) else da
+    da_template = rxr.open_rasterio(da_template, chunks=chunks).squeeze() if isinstance(da_template, str) else da_template
+
+    aligned = da.rio.reproject_match(da_template, resampling=resampling, num_threads=1)
+    if (da_template.rio.nodata is not None and
+        da_template.rio.nodata != aligned.rio.nodata):
+        aligned = aligned.rio.write_nodata(da_template.rio.nodata, encoded=True)
+
+    return aligned
 
 # ENDREGION: [Geospatial utils]
 

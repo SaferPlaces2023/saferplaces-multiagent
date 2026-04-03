@@ -2,8 +2,8 @@ import os
 import re
 import uuid
 import json
-
-import geopandas as gpd
+import base64
+import tempfile
 
 from markupsafe import escape
 
@@ -298,3 +298,127 @@ def get_layer_url():
         return jsonify({"error": "Layer source is required"}), 400
     
     return jsonify({'download_url': utils.download_url(layer_src)}), 200
+
+
+@app.route('/t/<thread_id>/register-vector', methods=['POST'])
+def register_vector(thread_id):
+    """Upload a GeoJSON payload to S3, register it as a layer, return HTTPS URL."""
+    gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
+    if not gi:
+        return jsonify({"error": "GraphInterface not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    geojson_data = data.get('geojson')
+    if not geojson_data:
+        return jsonify({"error": "GeoJSON data is required"}), 400
+
+    title = (data.get('title') or '').strip()
+    description = (data.get('description') or '').strip() or None
+
+    # Build a safe filename from title or a random token
+    base_name = re.sub(r'[^\w\-]', '_', title) if title else utils.random_id8()
+    filename = f"{base_name}.geojson"
+
+    # Write to a temporary file then upload to S3
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.geojson', delete=False, encoding='utf-8') as fh:
+            json.dump(geojson_data, fh, ensure_ascii=False)
+            tmp_path = fh.name
+
+        # Ensure WGS84 - reproject locally before upload
+        utils.vector_to_geojson4326_local(tmp_path)
+
+        state_bucket = s3_utils._STATE_BUCKET_(dict(user_id=gi.user_id, project_id=gi.project_id))
+        s3_uri = f"{state_bucket}/vectors/{filename}"
+        s3_utils.s3_upload(filename=tmp_path, uri=s3_uri, remove_src=True)
+        tmp_path = None  # upload moved / deleted the file
+
+    except Exception as exc:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        return jsonify({"error": f"S3 upload failed: {exc}"}), 500
+
+    src_url = utils.s3uri_to_https(s3_uri)
+    layer_title = title if title else utils.juststem(filename)
+
+    gi.register_layer(
+        src=s3_uri,
+        title=layer_title,
+        description=description,
+        layer_type='vector',
+        metadata=utils.vector_specs(s3_uri)
+    )
+
+    return jsonify({'src': src_url, 'title': layer_title}), 200
+
+
+@app.route('/t/<thread_id>/register-raster', methods=['POST'])
+def register_raster(thread_id):
+    """Align, convert to COG3857, upload to S3 and register a sculpted DEM."""
+    gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
+    if not gi:
+        return jsonify({"error": "GraphInterface not found"}), 404
+
+    data = request.get_json(silent=True) or {}
+    tif_b64 = data.get('tif_base64')
+    if not tif_b64:
+        return jsonify({"error": "TIF data is required"}), 400
+
+    title = (data.get('title') or '').strip()
+    description = (data.get('description') or '').strip() or None
+    source_dem_url = (data.get('source_dem_url') or '').strip() or None
+
+    base_name = re.sub(r'[^\w\-]', '_', title) if title else utils.random_id8()
+    filename = f"{base_name}.tif"
+
+    tmp_raw = None
+    tmp_aligned = None
+    try:
+        tif_bytes = base64.b64decode(tif_b64)
+        with tempfile.NamedTemporaryFile(suffix='.tif', delete=False) as fh:
+            fh.write(tif_bytes)
+            tmp_raw = fh.name
+
+        # Align to source DEM if available
+        if source_dem_url:
+            aligned = utils.raster_like_lazy(tmp_raw, source_dem_url)
+            with tempfile.NamedTemporaryFile(suffix='_aligned.tif', delete=False) as fh2:
+                tmp_aligned = fh2.name
+            aligned.rio.to_raster(tmp_aligned)
+            # os.remove(tmp_raw)
+            # tmp_raw = None
+            work_path = tmp_aligned
+        else:
+            work_path = tmp_raw
+
+        state_bucket = s3_utils._STATE_BUCKET_(dict(user_id=gi.user_id, project_id=gi.project_id))
+        s3_uri = f"{state_bucket}/rasters/{filename}"
+        final_uri = utils.tif_to_cog3857(work_path, dst=s3_uri)
+        # tif_to_cog3857 may return local path if already COG+3857 — upload manually in that case
+        if not final_uri.startswith('s3://'):
+            s3_utils.s3_upload(filename=final_uri, uri=s3_uri, remove_src=False)
+            final_uri = s3_uri
+
+    except Exception as exc:
+        return jsonify({"error": f"Processing failed: {exc}"}), 500
+    finally:
+        for p in [tmp_raw, tmp_aligned]:
+            if p and os.path.exists(p):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+    src_url = utils.s3uri_to_https(final_uri)
+    layer_title = title if title else utils.juststem(filename)
+
+    gi.register_layer(
+        src=final_uri,
+        title=layer_title,
+        description=description,
+        layer_type='raster',
+        metadata=utils.raster_specs(final_uri),
+    )
+
+    return jsonify({'src': src_url, 'title': layer_title}), 200
