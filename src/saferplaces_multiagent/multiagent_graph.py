@@ -96,11 +96,11 @@ def build_specialized_models_subgraph():
     
     models_builder.add_conditional_edges(
         models_invocation_confirm.name,
-        lambda state: state.get('models_invocation_confirmation') if state.get('models_invocations') else END,
+        lambda state: state.get('models_invocation_confirmation') if state.get('models_invocation') else END,
         {
             'accepted': models_executor.name,
             'modify': models_agent.name,
-            'aborted': END,
+            'aborted': models_executor.name,
             END: END
         }
     )
@@ -182,13 +182,19 @@ def build_multiagent_graph():
     # Conditional edges from supervisor
     graph_builder.add_conditional_edges(
         NodeNames.SUPERVISOR_SUBGRAPH,
-        lambda state: state.get("supervisor_next_node", NodeNames.FINAL_RESPONDER),
+        lambda state: state.get("supervisor_next_node", NodeNames.FINAL_RESPONDER).lower(),
         {
             NodeNames.RETRIEVER_SUBGRAPH: NodeNames.RETRIEVER_SUBGRAPH,
+            NodeNames.RETRIEVER_AGENT: NodeNames.RETRIEVER_SUBGRAPH,
+
             NodeNames.MODELS_SUBGRAPH: NodeNames.MODELS_SUBGRAPH,
+            NodeNames.MODELS_AGENT: NodeNames.MODELS_SUBGRAPH,
+            
             NodeNames.MAP_AGENT: NodeNames.MAP_AGENT,
             NodeNames.LAYERS_AGENT: NodeNames.LAYERS_AGENT,
+            
             NodeNames.FINAL_RESPONDER: NodeNames.FINAL_RESPONDER,
+            
             END: END,
         }
     )

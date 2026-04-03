@@ -2,19 +2,18 @@ from typing import Any, Dict, List, Optional
 import json
 import datetime
 
-from pydantic import BaseModel, Field
+# from pydantic import BaseModel, Field
 from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ToolCall
 from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
 
 from saferplaces_multiagent.common.response_classifier import ResponseClassifier
-from saferplaces_multiagent.ma.orchestrator.supervisor import PLAN_ACCEPTED
 from saferplaces_multiagent.multiagent_node import MultiAgentNode
 
 from ...common.states import MABaseGraphState, StateManager, build_nowtime_system_message
 from ...common.utils import _base_llm
 from ...common.templates import format_tool_confirmation, format_validation_errors
-from ...common.execution_narrative import StepResult, LayerSummary
+# from ...common.execution_narrative import StepResult, LayerSummary
 from ...common import names as N
 from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool
@@ -22,9 +21,9 @@ from .tools.digital_twin_tool import DigitalTwinTool
 from .tools.safer_buildings_tool import SaferBuildingsTool
 from .tools.safer_fire_tool import SaferFireTool
 from .layers_agent import LayersAgent
-from .confirmation_utils import ToolInvocationConfirmationHandler
-from .validation_utils import ToolValidationResponseHandler
-from ..prompts.models_agent_prompts import ModelsPrompts, ModelsInstructions
+# from .confirmation_utils import ToolInvocationConfirmationHandler
+# from .validation_utils import ToolValidationResponseHandler
+from ..prompts.models_agent_prompts import ModelsInstructions
 
 
 # ============================================================================
@@ -189,11 +188,13 @@ class ModelsAgent(MultiAgentNode):
         """Check if invocation has no tool calls."""
         return len(getattr(invocation, "tool_calls", []) or []) == 0
     
-    def _has_tool_calls(self, invocation: AIMessage) -> bool:
+    @staticmethod
+    def _has_tool_calls(invocation: AIMessage) -> bool:
         """Check if invocation has tool calls."""
         return len(getattr(invocation, "tool_calls", []) or []) > 0
     
-    def _get_tool_calls(self, invocation: AIMessage) -> list:
+    @staticmethod
+    def _get_tool_calls(invocation: AIMessage) -> list:
         """Get tool calls from an invocation."""
         return getattr(invocation, "tool_calls", []) or []
 
@@ -210,7 +211,7 @@ class ModelsAgent(MultiAgentNode):
         if invocation_reason == "new_invocation":
             tool_invocation = ModelsInstructions.InvokeTools.Invocation.InvokeOneShot.stable(state)
             invocation: AIMessage = self.llm.invoke(tool_invocation)
-            if self._has_tool_calls(invocation):
+            if ModelsAgent._has_tool_calls(invocation):
                 state['models_invocation'] = invocation
                 state['models_current_step'] = 0
                 state['models_invocation_confirmation'] = INVOCATION_PENDING
@@ -219,7 +220,7 @@ class ModelsAgent(MultiAgentNode):
         elif invocation_reason == "invocation_provide_corrections":
             correct_tool_invocation = ModelsInstructions.CorrectToolsInvocation.Invocation.ReInvokeOneShot.stable(state)
             invocation: AIMessage = self.llm.invoke(correct_tool_invocation)
-            if self._has_tool_calls(invocation):
+            if ModelsAgent._has_tool_calls(invocation):
                 state['models_invocation'] = invocation
                 state['models_current_step'] = 0
                 state['models_invocation_confirmation'] = INVOCATION_PENDING
@@ -228,7 +229,7 @@ class ModelsAgent(MultiAgentNode):
         elif invocation_reason == "invocation_auto_correct":
             auto_correct_tool_invocation = ModelsInstructions.AutoCorrectToolsInvocation.Invocation.AutoReInvokeOneShot.stable(state)
             invocation: AIMessage = self.llm.invoke(auto_correct_tool_invocation)
-            if self._has_tool_calls(invocation):
+            if ModelsAgent._has_tool_calls(invocation):
                 state['models_invocation'] = invocation
                 state['models_current_step'] = 0
                 state['models_invocation_confirmation'] = INVOCATION_PENDING
@@ -247,9 +248,7 @@ class ModelsInvocationConfirm(MultiAgentNode):
     def __init__(self, name: str = NodeNames.MODELS_INVOCATION_CONFIRM, enabled: bool = False, log_state: bool = True) -> None:
         super().__init__(name, log_state)
         self.enabled = enabled
-        self._classifier = ResponseClassifier(self.llm)
-        self.confirmation_handler = ToolInvocationConfirmationHandler()
-        self.validation_handler = ToolValidationResponseHandler()
+        self._classifier = ResponseClassifier(_base_llm)
 
 
     def _validate_invocation(self, tool_call: ToolCall, state: MABaseGraphState) -> Dict[str, Dict[str, str]]:
@@ -260,9 +259,9 @@ class ModelsInvocationConfirm(MultiAgentNode):
         tool_args = tool_call.get("args") or {}
         tool = ModelsAgentTools().get(tool_name, state)
         
-        tool_call["args"] = self._apply_inference_to_args(tool, tool_args, state)
+        tool_call["args"] = ModelsInvocationConfirm._apply_inference_to_args(tool, tool_args, state)
         
-        invocation_errors = self._validate_args(tool, tool_call["args"])
+        invocation_errors = ModelsInvocationConfirm._validate_args(tool, tool_call["args"])
         if invocation_errors:
             all_errors = [
                 {
@@ -350,7 +349,7 @@ class ModelsInvocationConfirm(MultiAgentNode):
         print(f"[{self.name}] → Current invocation: {invocation}")
 
         # DOC: If no tools has been called
-        if not invocation or len(ModelsAgent._get_tool_calls(invocation)) == 0:
+        if not invocation or ModelsAgent._has_no_tool_calls(invocation):
             return state
         
         # DOC: Get current tool calls
@@ -361,6 +360,8 @@ class ModelsInvocationConfirm(MultiAgentNode):
 
         # DOC: Interrupt for invalid tool call
         if invocation_errors:
+
+            print(f"[{self.name}] → Invocation errors: {invocation_errors}")
 
             # DOC: Record validation errors in state
             state['models_invocation_errors'] = invocation_errors
@@ -414,238 +415,19 @@ class ModelsExecutor(MultiAgentNode):
     ):
         super().__init__(name, log_state)
         self.layers_agent = LayersAgent()
+
     
-    def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Main execution logic."""
-
-        # DOC: get current invocation
-        invocation = state.get('models_invocation')
-
-        # DOC: Empty invocation
-        if not ModelsAgent._has_tool_calls(invocation):
-            state['messages'] = [ invocation ]
-            state['models_invocation'] = None
-            state['models_current_step'] = None
-            state['models_invocation_confirmation'] = None
-            state['models_invocation_reason'] = None
-            state['supervisor_invocation_reason'] = "step_no_tools"
-
-        # DOC: get invocation confirmation status
-        invocation_confirmation = state.get('models_invocation_confirmation')
-        
-        # DOC: Confirmed invocation
-        if invocation_confirmation == INVOCATION_ABORT:
-            state['models_invocation'] = None
-            state['models_current_step'] = None
-            state['models_invocation_confirmation'] = None
-            state['models_invocation_reason'] = None
-            state['supervisor_invocation_reason'] = "step_skip"
-            return state
-        
-        # DOC: get current step — mandatory valued if invocation exists
-        invocation_current_step = state['models_current_step']
-
-        # ???: raccolta risultati ed errori
-
-        tool_responses = []        
-        for tool_call in invocation.tool_calls[invocation_current_step:]:
-            print(f"[{self.name}] → Executing: {tool_call['name']}")
-
-            tool_response = self._execute_tool_call(tool_call, state)
-            tool_responses.append(tool_response)
-            
-            state['models_current_step'] = state['models_current_step'] + 1
-
-            print(f"[{self.name}] ✓ Response: {tool_response.content[:100]}...")
-
-
-
-        # DOC: not
-        
-        if ModelsAgent._has_tool_calls
-        
-        if ModelsAgent._has_no_tool_calls(invocation):
-            state["current_step"] += 1
-            state["messages"] = [invocation]
-            return state
-
-        invocation_current_step = state[STATE_MODELS_CURRENT_STEP]
-
-        tool_responses = []
-
-        # Execute each pending tool call
-        for tool_call in invocation.tool_calls[invocation_current_step:]:
-            print(f"[{self.name}] → Executing: {tool_call['name']}")
-
-            tool_response = self._execute_tool_call(tool_call, state)
-            tool_responses.append(tool_response)
-            
-            # Mark step as complete
-            StateManager.mark_agent_step_complete(state, "models")
-
-            print(f"[{self.name}] ✓ Response: {tool_response.content[:100]}...")
-
-        # Update state with results
-        state["current_step"] += 1
-        state["messages"] = [invocation, *tool_responses]
-
-        print(f"[{self.name}] ✓ Execution complete")
-
-        return state
-
-    def _execute_tool_call(self, tool_call: ToolCall, state: MABaseGraphState) -> ToolMessage:
+    def _execute_tool_call(self, tool_name:str, tool_args: Dict[str, Any], state: MABaseGraphState) -> ToolMessage:
         """Execute a single tool call and return response."""
-        tool_name = tool_call["name"]
-        tool_args = tool_call.get("args") or {}
-        tool = ModelsAgentTools().get(tool_name, state)
         
-        # Execute tool (arguments already complete and validated from Confirm step)
+        tool = ModelsAgentTools().get(tool_name, state)        
         try:
-            result = tool._execute(**tool_args)
+            tool_result = tool._execute(**tool_args)
         except Exception as exc:
-            error_msg = f"Tool '{tool_name}' raised an exception: {exc}"
-            print(f"[{self.name}] ⚠ {error_msg}")
-            self._record_tool_error(tool_name, tool_args, str(exc), state)
-            
-            # Update narrative with error (§3 PLN-013)
-            if state.get("execution_narrative"):
-                from ...common.execution_narrative import StepError
-                step_error = StepError(
-                    step_index=state.get("current_step", 0),
-                    tool_name=tool_name,
-                    error_type="execution_exception",
-                    message=str(exc),
-                    recovery_suggestion=f"Verifica i parametri del tool {tool_name}"
-                )
-                state["execution_narrative"].add_error(step_error)
-            
-            return ToolMessage(content=error_msg, tool_call_id=tool_call["id"])
+            tool_result = dict(status = "error", message = str(exc))
+        return tool_result
 
-        # Format tool response message (tool-specific)
-        tool_response = self._format_tool_response(tool_call, tool_name, tool_args, result)
-
-        # Add created layer to registry
-        self._add_layer_to_registry(tool_name, tool_args, result, state)
-
-        # Record result (common logic)
-        self._record_tool_result(tool_name, tool_args, result, state)
-        
-        # Update narrative with step result (§3 PLN-013)
-        if state.get("execution_narrative"):
-            plan = state.get("plan", [])
-            step_index = state.get("current_step", 0)
-            step_goal = plan[step_index].get("goal") if step_index < len(plan) else ""
-            
-            # Build better output summary based on tool
-            output_desc = f"Simulazione: {tool_name}"
-            if tool_name == N.SAFER_RAIN_TOOL:
-                output_desc = f"SaferRain: Water depth raster creato ({tool_args.get('rain', 'N/A')} mm rainfall)"
-            elif tool_name == N.DIGITAL_TWIN_TOOL:
-                output_desc = f"DigitalTwin: Environment created for {tool_args.get('bbox', 'N/A')}"
-            elif tool_name == N.SAFERBUILDINGS_TOOL:
-                output_desc = f"SaferBuildings: Flooded buildings layer created from {tool_args.get('water', 'N/A')}"
-            elif tool_name == N.SAFER_FIRE_TOOL:
-                output_desc = f"SaferFire: Fire spread simulation completed (wind={tool_args.get('wind_speed', 'N/A')} m/s, {tool_args.get('wind_direction', 'N/A')}°)"
-            
-            step_result = StepResult(
-                step_index=step_index,
-                agent=NodeNames.MODELS_SUBGRAPH,
-                goal=step_goal,
-                tool_name=tool_name,
-                outcome="success" if result.get("status") == "success" else "partial",
-                output_summary=output_desc
-            )
-            state["execution_narrative"].add_step_result(step_result)
-
-        return tool_response
-
-    def _format_tool_response(
-        self,
-        tool_call: ToolCall,
-        tool_name: str,
-        tool_args: Dict[str, Any],
-        result: Any
-    ) -> ToolMessage:
-        """Format tool response message with tool-specific logic."""
-        
-        # Tool-specific formatting
-        if tool_name == N.SAFER_RAIN_TOOL:
-            content = self._format_safer_rain_response(tool_args, result)
-        elif tool_name == N.SAFERBUILDINGS_TOOL:
-            content = self._format_safer_buildings_response(tool_args, result)
-        elif tool_name == N.SAFER_FIRE_TOOL:
-            content = self._format_safer_fire_response(tool_args, result)
-        else:
-            # Generic fallback
-            content = self._format_generic_response(tool_name, tool_args, result)
-
-        return ToolMessage(content=content, tool_call_id=tool_call["id"])
-
-    @staticmethod
-    def _format_safer_rain_response(tool_args: Dict[str, Any], result: Any) -> str:
-        """Format SaferRain specific response."""
-        dem = tool_args.get('dem', 'unknown')
-        rain = tool_args.get('rain', 'unknown')
-        source = result.get('tool_output', {}).get('data', {}).get('source', 'N/A')
-
-        return (
-            f"✓ Flood simulation completed successfully\n"
-            f"Model: SaferRain\n"
-            f"DEM: {dem}\n"
-            f"Rainfall: {rain}\n"
-            f"Output URI: {source}\n"
-            f"Description: Water depth raster from flood propagation simulation"
-        )
-
-    @staticmethod
-    def _format_safer_buildings_response(tool_args: Dict[str, Any], result: Any) -> str:
-        """Format SaferBuildings specific response."""
-        water = tool_args.get('water', 'unknown')
-        provider = tool_args.get('provider')
-        buildings = tool_args.get('buildings')
-        source = result.get('tool_output', {}).get('data', {}).get('source', 'N/A')
-        buildings_desc = f"provider={provider}" if provider else f"buildings={buildings}"
-
-        return (
-            f"✓ Building flood analysis completed successfully\n"
-            f"Model: SaferBuildings\n"
-            f"Water depth raster: {water}\n"
-            f"Buildings source: {buildings_desc}\n"
-            f"Output URI: {source}\n"
-            f"Description: Vector layer with per-building flood status"
-        )
-
-    @staticmethod
-    def _format_safer_fire_response(tool_args: Dict[str, Any], result: Any) -> str:
-        """Format SaferFire specific response."""
-        dem = tool_args.get('dem', 'unknown')
-        ignitions = tool_args.get('ignitions', 'unknown')
-        wind_speed = tool_args.get('wind_speed', 'N/A')
-        wind_direction = tool_args.get('wind_direction', 'N/A')
-        time_max = tool_args.get('time_max', 'N/A')
-        layers = result.get('tool_output', {}).get('data', {})
-        outputs_summary = ', '.join(layers.keys()) if layers else 'N/A'
-
-        return (
-            f"✓ Wildfire propagation simulation completed successfully\n"
-            f"Model: SaferFire\n"
-            f"DEM: {dem}\n"
-            f"Ignitions: {ignitions}\n"
-            f"Wind: {wind_speed} m/s from {wind_direction}°\n"
-            f"Duration: {time_max}s\n"
-            f"Output layers: {outputs_summary}\n"
-            f"Description: Fire spread rasters from wildland fire propagation simulation"
-        )
-
-    @staticmethod
-    def _format_generic_response(tool_name: str, tool_args: Dict[str, Any], result: Any) -> str:
-        """Format generic tool response."""
-        return (
-            f"✓ Tool '{tool_name}' executed successfully\n"
-            f"Arguments: {json.dumps(tool_args, indent=2)}\n"
-            f"Result: {json.dumps(result, indent=2)}"
-        )
-
+    
     def _add_layer_to_registry(
         self,
         tool_name: str,
@@ -692,50 +474,87 @@ class ModelsExecutor(MultiAgentNode):
         state["additional_context"]["relevant_layers"]["is_dirty"] = True
 
         print(f"[{self.name}] ✓ Layer added to registry")
+            
 
-    @staticmethod
-    def _record_tool_result(
-        tool_name: str,
-        tool_args: Dict[str, Any],
-        result: Any,
-        state: MABaseGraphState
-    ) -> None:
-        """Record tool execution result in state."""
-        current_step = state["current_step"]
-        step_key = f"step_{current_step}"
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        """Main execution logic."""
 
-        if STATE_TOOL_RESULTS not in state:
-            state[STATE_TOOL_RESULTS] = {}
+        # DOC: get current invocation
+        invocation = state.get('models_invocation')
 
-        if step_key not in state[STATE_TOOL_RESULTS]:
-            state[STATE_TOOL_RESULTS][step_key] = []
+        # DOC: Empty invocation
+        if not ModelsAgent._has_tool_calls(invocation):
+            state['messages'] = [ invocation ]
+            state['models_invocation'] = None
+            state['models_current_step'] = None
+            state['models_invocation_confirmation'] = None
+            state['models_invocation_reason'] = None
+            state['supervisor_invocation_reason'] = "step_no_tools"
+            return state
 
-        state[STATE_TOOL_RESULTS][step_key].append({
-            "tool": tool_name,
-            "args": tool_args,
-            "result": result
-        })
+        # DOC: get invocation confirmation status
+        invocation_confirmation = state.get('models_invocation_confirmation')
+        
+        # DOC: Aborted invocation
+        if invocation_confirmation == INVOCATION_ABORT:
+            state['models_invocation'] = None
+            state['models_current_step'] = None
+            state['models_invocation_confirmation'] = None
+            state['models_invocation_reason'] = None
+            state['supervisor_invocation_reason'] = "step_skip"
+            return state
+        
+        # DOC: get current step — mandatory valued if invocation exists
+        invocation_current_step = state['models_current_step']
 
-    @staticmethod
-    def _record_tool_error(
-        tool_name: str,
-        tool_args: Dict[str, Any],
-        error_message: str,
-        state: MABaseGraphState
-    ) -> None:
-        """Record a tool execution failure in state."""
-        current_step = state["current_step"]
-        step_key = f"step_{current_step}"
+        tool_responses = [] 
+        step_error = False
 
-        if STATE_TOOL_RESULTS not in state:
-            state[STATE_TOOL_RESULTS] = {}
+        for tool_call in invocation.tool_calls[invocation_current_step:]:
 
-        if step_key not in state[STATE_TOOL_RESULTS]:
-            state[STATE_TOOL_RESULTS][step_key] = []
+            tool_call_id = tool_call["id"]
+            tool_name = tool_call["name"]
+            tool_args = tool_call.get("args") or {}
 
-        state[STATE_TOOL_RESULTS][step_key].append({
-            "tool": tool_name,
-            "args": tool_args,
-            "status": "error",
-            "message": error_message,
-        })
+            print(f"[{self.name}] → Executing: {tool_name}")
+
+            tool_result = self._execute_tool_call(tool_name, tool_args, state)
+
+            tool_response = ToolMessage(
+                content = json.dumps(tool_result, indent=2),
+                tool_call_id = tool_call_id,
+                name = tool_name
+            )
+
+            tool_responses.append(tool_response)
+
+            if tool_result.get("status") == "error":
+                step_error = True
+                break
+            
+            self._add_layer_to_registry(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                result=tool_result,
+                state=state
+            )
+            
+            state['models_current_step'] = state['models_current_step'] + 1
+
+        if step_error:
+            # Keep tool_calls up to and including the failing step so the
+            # invocation remains visible in the conversation history.
+            solved_tool_calls = invocation.tool_calls[:state['models_current_step'] + 1]
+            invocation = AIMessage(content=invocation.content, tool_calls=solved_tool_calls)
+            state['supervisor_invocation_reason'] = "step_error"
+        else:
+            state['supervisor_invocation_reason'] = "step_done"
+        
+        state['models_invocation'] = None
+        state['models_current_step'] = None
+        state['models_invocation_confirmation'] = None
+        state['models_invocation_reason'] = None
+
+        state['messages'] = [invocation, *tool_responses]
+
+        return state

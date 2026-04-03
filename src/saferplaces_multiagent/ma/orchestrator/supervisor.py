@@ -107,6 +107,7 @@ class SupervisorAgent(MultiAgentNode):
         
         # DOC: From RequestParser (new request)
         if invocation_reason == "new_request":
+            state["replan_iteration_count"] = 0
             create_plan_invocation = SupervisorInstructions.PlanGeneration.Invocations.PlanOneShot.stable(state)
             plan: ExecutionPlan = self.llm.invoke(create_plan_invocation)
             print(f"[{self.name}] → Generated plan: {plan}")
@@ -118,6 +119,7 @@ class SupervisorAgent(MultiAgentNode):
              
         # DOC: From PlannerConfirm (modify)
         elif invocation_reason == PLAN_MODIFY:
+            state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
             modify_plan_invocation = SupervisorInstructions.PlanModification.Invocations.ReplanOneShot.stable(state)
             plan: ExecutionPlan = self.llm.invoke(modify_plan_invocation)
             plan_steps = [ step.model_dump() for step in plan.steps if step.agent in self.specialized_agents ]
@@ -126,25 +128,42 @@ class SupervisorAgent(MultiAgentNode):
                 state["current_step"] = 0
                 state["plan_confirmation"] = PLAN_PENDING
 
-        # DOC: From Specialized agent step done (success)
-        elif invocation_reason == "step_done":
-            # TODO:
-            pass
-
         # DOC: From Specialized agent step (with no tool calls)
         elif invocation_reason == "step_no_tools":
-            # TODO:
-            pass
-
+            state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
+            modify_plan_invocation = SupervisorInstructions.PlanModificationDueStepNoTools.Invocations.ReplanDueNoToolsOneShot.stable(state)
+            plan: ExecutionPlan = self.llm.invoke(modify_plan_invocation)
+            plan_steps = [ step.model_dump() for step in plan.steps if step.agent in self.specialized_agents ]
+            state["plan"] = plan_steps
+            if len(plan_steps) > 0:
+                state["current_step"] = 0
+                state["plan_confirmation"] = PLAN_PENDING
+        
         # DOC: From Specialized agent InvocationConfirm (abort)
         elif invocation_reason == "step_skip":
-            # TODO:
-            pass
+            state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
+            modify_plan_invocation = SupervisorInstructions.PlanModificationDueStepSkip.Invocations.ReplanDueSkipOneShot.stable(state)
+            plan: ExecutionPlan = self.llm.invoke(modify_plan_invocation)
+            plan_steps = [ step.model_dump() for step in plan.steps if step.agent in self.specialized_agents ]
+            state["plan"] = plan_steps
+            if len(plan_steps) > 0:
+                state["current_step"] = 0
+                state["plan_confirmation"] = PLAN_PENDING
 
-        # DOC: From Specialized agent ToolExecutor (tool error)
+        # DOC: From Specialized agent ToolExecutor (error)
         elif invocation_reason == "step_error":
-            # TODO:
-            pass
+            state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
+            modify_plan_invocation = SupervisorInstructions.PlanModificationDueStepError.Invocations.ReplanDueErrorOneShot.stable(state)
+            plan: ExecutionPlan = self.llm.invoke(modify_plan_invocation)
+            plan_steps = [ step.model_dump() for step in plan.steps if step.agent in self.specialized_agents ]
+            state["plan"] = plan_steps
+            if len(plan_steps) > 0:
+                state["current_step"] = 0
+                state["plan_confirmation"] = PLAN_PENDING
+
+        # DOC: From Specialized agent step done (success)
+        elif invocation_reason == "step_done":
+            state["current_step"] = (state.get("current_step") or 0) + 1
 
         print(f"[{self.name}] → Plan state: {state.get('plan')}")
         return state
@@ -190,15 +209,13 @@ class SupervisorPlannerConfirm(MultiAgentNode):
     def _handle_accept(state: MABaseGraphState) -> MABaseGraphState:
         """Handle accept: proceed with execution."""
         state["plan_confirmation"] = PLAN_ACCEPTED
-        state["replan_iteration_count"] = 0
         return state
     
     @staticmethod
     def _handle_modify(state: MABaseGraphState) -> MABaseGraphState:
         """Handle modify: incremental replanning."""
-        state["plan_confirmation"] = PLAN_PENDING
+        state["plan_confirmation"] = PLAN_MODIFY
         state["supervisor_invocation_reason"] = PLAN_MODIFY
-        state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
         return state
     
     @staticmethod
@@ -345,12 +362,12 @@ class SupervisorRouter(MultiAgentNode):
         # DOC: get current step — mandatory valued if plan exists
         current_step = state["current_step"]
 
-        # DOC: Next steps in plan
         if current_step < len(plan):
+            # DOC: Next steps in plan
             state['supervisor_next_node'] = plan[current_step]['agent']
-
-        # DOC: Plan completed
-        state['supervisor_next_node'] = NodeNames.FINAL_RESPONDER
+        else:
+            # DOC: Plan completed
+            state['supervisor_next_node'] = NodeNames.FINAL_RESPONDER
 
         return state
 
