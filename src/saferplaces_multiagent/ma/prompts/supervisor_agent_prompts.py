@@ -817,6 +817,33 @@ class SupervisorInstructions:
                         message = message
                     ))
 
+        class LLMConfirmationInterrupt:
+            """Parallel to ConfirmationInterrupt — feeds the static plan summary to an LLM
+            so the confirmation message is rendered in fluent natural language."""
+
+            class Invocation:
+
+                class ConfirmOneShot:
+
+                    @staticmethod
+                    def stable(state: MABaseGraphState) -> list:
+                        static_message = SupervisorInstructions.PlanConfirmation.ConfirmationInterrupt.StaticMessage.stable(state)
+
+                        system_prompt = (
+                            "You are a conversational assistant presenting an execution plan to the user.\n"
+                            "Rewrite the plan summary below in clear, fluent natural language.\n"
+                            "\n"
+                            "Rules:\n"
+                            "- Keep all steps and parameters — do not omit or invent anything.\n"
+                            "- Use the same language as the user's conversation.\n"
+                            "- End with a short, friendly question asking the user whether to proceed.\n"
+                        )
+
+                        return [
+                            SystemMessage(content=system_prompt),
+                            HumanMessage(content=static_message.message),
+                        ]
+
 
 
 

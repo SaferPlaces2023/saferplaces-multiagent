@@ -1,3 +1,4 @@
+from pyexpat.errors import messages
 from typing import Any, Dict, List, Optional
 import json
 import datetime
@@ -248,6 +249,7 @@ class ModelsInvocationConfirm(MultiAgentNode):
     def __init__(self, name: str = NodeNames.MODELS_INVOCATION_CONFIRM, enabled: bool = False, log_state: bool = True) -> None:
         super().__init__(name, log_state)
         self.enabled = enabled
+        self.llm = _base_llm
         self._classifier = ResponseClassifier(_base_llm)
 
 
@@ -309,12 +311,12 @@ class ModelsInvocationConfirm(MultiAgentNode):
         intent_handler_map = {
             "provide_corrections": self._handle_provide_corrections,
             "auto_correct": self._handle_auto_correct,
-            "clarify_requirements": self._handle_clarify_requirements,
-            "acknowledge": self._handle_acknowledge,
-            "skip_tool": self._handle_skip_tool,
+            # "clarify_requirements": self._handle_clarify_requirements,
+            # "acknowledge": self._handle_acknowledge,
+            # "skip_tool": self._handle_skip_tool,
             "abort": self._handle_abort,
         }
-        handler = intent_handler_map.get(intent, self._handle_clarify_requirements)
+        handler = intent_handler_map.get(intent, self._handle_auto_correct)
         return handler(state)
     
     @staticmethod
@@ -367,7 +369,8 @@ class ModelsInvocationConfirm(MultiAgentNode):
             state['models_invocation_errors'] = invocation_errors
 
             # DOC: Prepare interrupt
-            invalid_invocation_message = ModelsInstructions.InvalidInvocationInterrupt.StaticMessage.stable(state).message
+            invalid_invocation_message = self.llm.invoke(ModelsInstructions.InvalidInvocationInterrupt.LLMInvalidInvocationInterrupt.Invocation.NotifyOneShot.stable(state)).content
+            # invalid_invocation_message = ModelsInstructions.InvalidInvocationInterrupt.StaticMessage.stable(state).message
             interruption = interrupt({
                 "content": invalid_invocation_message,
                 "interrupt_type": "invalid-invocation",

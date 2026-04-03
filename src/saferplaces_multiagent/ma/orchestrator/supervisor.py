@@ -293,7 +293,8 @@ class SupervisorPlannerConfirm(MultiAgentNode):
             return state
 
         # DOC: Interrupt for request user confirmation
-        confirmation_message = SupervisorInstructions.PlanConfirmation.ConfirmationInterrupt.StaticMessage.stable(state).message
+        confirmation_message = self.llm.invoke(SupervisorInstructions.PlanConfirmation.LLMConfirmationInterrupt.Invocation.ConfirmOneShot.stable(state)).content
+        # confirmation_message = SupervisorInstructions.PlanConfirmation.ConfirmationInterrupt.StaticMessage.stable(state).message
         interruption = interrupt({
             "content": confirmation_message,
             "interrupt_type": "plan-confirmation",

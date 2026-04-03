@@ -73,6 +73,7 @@ class MABaseGraphState(TypedDict):
 
     # DOC: specialized retriever agent state
     retriever_invocation: AIMessage
+    retriever_invocation_errors: Optional[List[dict]]
     retriever_invocation_confirmation: ConfirmationState
     retriever_reinvocation_request: AnyMessage
     retriever_current_step: Optional[int]

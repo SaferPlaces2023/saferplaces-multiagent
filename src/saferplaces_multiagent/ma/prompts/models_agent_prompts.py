@@ -378,7 +378,32 @@ class ModelsInstructions:
                     message = message
                 ))
 
+        class LLMInvalidInvocationInterrupt:
 
+            class Invocation:
+
+                class NotifyOneShot:
+
+                    @staticmethod
+                    def stable(state: MABaseGraphState) -> list:
+                        static_message = ModelsInstructions.InvalidInvocationInterrupt.StaticMessage.stable(state)
+
+                        system_prompt = (
+                            "You are a conversational assistant presenting a tool validation error to the user.\n"
+                            "Convert the structured error report below into a short, conversational message in flowing prose.\n"
+                            "Rules:\n"
+                            "- Do NOT use bullet lists, emoji, or structured formatting — write full sentences only.\n"
+                            "- Keep all parameter names and error details intact.\n"
+                            "- Use the same language as the user's conversation.\n"
+                            "- Close with a single natural-language sentence summarising the four available actions: "
+                            "provide the correct values, request automatic correction, skip the failing tool, or cancel.\n"
+                            "- Do NOT add any information that is not in the original report.\n"
+                        )
+
+                        return [
+                            SystemMessage(content=system_prompt),
+                            HumanMessage(content=static_message.message),
+                        ]
 
 
 
