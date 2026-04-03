@@ -157,26 +157,7 @@ def build_multiagent_graph():
     graph_builder.add_node(NodeNames.FINAL_RESPONDER, final_responder)
     
     # Add edges
-    # graph_builder.add_edge(START, NodeNames.STATE_PROCESSOR)
-
-    # # def _route_from_state_processor(state):
-        
-    # #     messages = state.get("messages") or []
-    # #     if messages and isinstance(messages[-1], HumanMessage):
-    # #         return NodeNames.REQUEST_PARSER
-    # #     if state.get("map_request"):
-    # #         return NodeNames.MAP_AGENT
-    # #     return END
-
-    # graph_builder.add_conditional_edges(
-    #     NodeNames.STATE_PROCESSOR,
-    #     _route_from_state_processor,
-    #     {
-    #         NodeNames.REQUEST_PARSER: NodeNames.REQUEST_PARSER,
-    #         NodeNames.MAP_AGENT: NodeNames.MAP_AGENT,
-    #         END: END,
-    #     },
-    # )
+    graph_builder.add_edge(NodeNames.STATE_PROCESSOR, END)
     graph_builder.add_edge(NodeNames.REQUEST_PARSER, NodeNames.SUPERVISOR_SUBGRAPH)
     
     # Conditional edges from supervisor
@@ -205,19 +186,7 @@ def build_multiagent_graph():
 
     graph_builder.add_edge(NodeNames.LAYERS_AGENT, NodeNames.SUPERVISOR_SUBGRAPH)
 
-    # MAP_AGENT loops to supervisor when called from a plan, or ends for state-only invocations
-    graph_builder.add_conditional_edges(
-        NodeNames.MAP_AGENT,
-        lambda state: (
-            NodeNames.SUPERVISOR_SUBGRAPH
-            if state.get("parsed_request") and not state.get("map_request")
-            else END
-        ),
-        {
-            NodeNames.SUPERVISOR_SUBGRAPH: NodeNames.SUPERVISOR_SUBGRAPH,
-            END: END,
-        },
-    )
+    graph_builder.add_edge(NodeNames.MAP_AGENT, NodeNames.SUPERVISOR_SUBGRAPH)
     # Final edge
     graph_builder.add_edge(NodeNames.FINAL_RESPONDER, END)
     

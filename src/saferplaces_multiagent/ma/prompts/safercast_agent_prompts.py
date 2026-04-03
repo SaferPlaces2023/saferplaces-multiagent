@@ -5,6 +5,7 @@ Prompts are structured hierarchically with `stable()` and version variants for A
 """
 
 import json
+import datetime
 
 from typing import Dict
 
@@ -64,6 +65,7 @@ class SaferCastInstructions:
                 def stable(state: MABaseGraphState) -> Prompt:
                     parsed_request_context = RequestParserInstructions.Prompts._ParsedRequest.stable(state)
                     layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
+                    shapes_context = LayersAgentPrompts.BasicShapesSummary.stable(state)
 
                     conversation_context = Prompt(dict(
                         header="[CONVERSATION HISTORY]",
@@ -75,12 +77,19 @@ class SaferCastInstructions:
                         message=state["plan"][state["current_step"]]["goal"]
                     ))
 
+                    nowtime = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
                     message = (
+                        f"[CURRENT UTC0 DATETIME] {nowtime}\n"
+                        "\n"
                         f"{parsed_request_context.header}\n"
                         f"{parsed_request_context.message}\n"
                         "\n"
                         f"{layer_context.header}\n"
                         f"{layer_context.message}\n"
+                        "\n"
+                        f"{shapes_context.header}\n"
+                        f"{shapes_context.message}\n"
                         "\n"
                         f"{conversation_context.header}\n"
                         f"{conversation_context.message}\n"

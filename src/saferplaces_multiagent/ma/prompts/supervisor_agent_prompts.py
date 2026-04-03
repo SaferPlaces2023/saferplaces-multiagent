@@ -5,6 +5,7 @@ from typing import Any, List, Dict
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 import json
+import datetime
 
 from ...common.states import MABaseGraphState
 from ...common.context_builder import ContextBuilder
@@ -39,7 +40,10 @@ class SupervisorInstructions:
                         "AVAILABLE AGENTS:\n"
                         "- retriever_agent: retrieves observational rainfall data (DPC radar) and weather forecasts (Meteoblue). Use BEFORE models_agent when simulation input data is not yet available.\n"
                         "- models_agent: creates digital twin base layers (DEM, buildings, land use) or runs flood/fire simulations (SaferRain, SaferFire). Requires input layers to already exist.\n"
-                        "- map_agent: adds, removes, styles, or queries layers in the project registry. Use for display or layer management tasks.\n"
+                        "- map_agent: support agent for map frontend interactions — moves the viewport, generates layer symbology styles (MapLibre GL JS), "
+                        "and registers shapes drawn by the user. Does NOT run simulations, retrieve data, or modify the layer registry.\n"
+                        "  Use map_agent when: the user wants to navigate/zoom the map, change visual appearance of a layer, "
+                        "register a drawn shape, or query the current map view or shapes context.\n"
                         "- layers_agent: support agent that reads, queries and updates the layer registry. Does NOT run simulations or retrieve external data.\n"
                         "  Use layers_agent when: (a) the user asks about available layers, layer metadata, or layer status; "
                         "(b) a required layer attribute (bbox, src, type, metadata) is not already present in the current context summary. "
@@ -70,7 +74,7 @@ class SupervisorInstructions:
                         "Available agents:\n"
                         "- retriever_agent: fetches observational rainfall data (DPC radar) and weather forecasts (Meteoblue)\n"
                         "- models_agent: generate digital twins layers or runs meteorological simulation (SaferRain) on a given scenario\n"
-                        "- map_agent: adds, removes, styles or queries project's layer information\n"
+                        "- map_agent: support agent for map frontend — viewport navigation, layer symbology styles, shape registration. Does NOT run simulations or modify layer data.\n"
                         "- layers_agent: support agent — reads, queries and updates the layer registry without running simulations or fetching external data. "
                         "Use it when the user asks about existing layers or when a required layer attribute is not already available in context.\n"
                         "\n"
@@ -97,6 +101,7 @@ class SupervisorInstructions:
                     parsed_request_context = RequestParserInstructions.Prompts._ParsedRequest.stable(state)
 
                     layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
+                    shapes_context = LayersAgentPrompts.BasicShapesSummary.stable(state)
 
                     # map_context = MapAgentPrompts.MapContext
 
@@ -105,12 +110,19 @@ class SupervisorInstructions:
                         message = ContextBuilder.conversation_history(state, max_messages=5)
                     ))
 
+                    nowtime = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
                     message = (
+                        f"[CURRENT UTC0 DATETIME] {nowtime}\n"
+                        "\n"
                         f"{parsed_request_context.header}\n"
                         f"{parsed_request_context.message}\n"
                         "\n"
                         f"{layer_context.header}\n"
                         f"{layer_context.message}\n"
+                        "\n"
+                        f"{shapes_context.header}\n"
+                        f"{shapes_context.message}\n"
                         "\n"
                         f"{conversation_context.header}\n"
                         f"{conversation_context.message}\n"

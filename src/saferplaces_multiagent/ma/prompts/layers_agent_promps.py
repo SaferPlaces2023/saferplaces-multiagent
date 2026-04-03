@@ -60,6 +60,44 @@ class LayersAgentPrompts:
                 message = write_message(layers)
             ))
 
+    class BasicShapesSummary:
+
+        @staticmethod
+        def stable(state: MABaseGraphState) -> Prompt:
+
+            def _fmt_bbox(meta: dict) -> str:
+                bbox = (meta or {}).get("bbox")
+                if not bbox:
+                    return ""
+                return (
+                    f"bbox: W={bbox.get('west','?')} S={bbox.get('south','?')} "
+                    f"E={bbox.get('east','?')} N={bbox.get('north','?')}"
+                )
+
+            def write_message(shapes: list) -> str:
+                if not shapes:
+                    return "No shapes registered."
+                lines = []
+                for shape in shapes:
+                    label = shape.get("label") or shape.get("shape_id", "?")
+                    stype = shape.get("shape_type", "unknown")
+                    bbox_str = _fmt_bbox(shape.get("metadata") or {})
+                    line = f"• {label} ({stype})"
+                    if bbox_str:
+                        line += f"  — {bbox_str}"
+                    lines.append(line)
+                return "\n".join(lines)
+
+            shapes = state.get("shapes_registry") or []
+
+            return Prompt(dict(
+                title = "ShapesRegistrySummary",
+                description = "Compact summary of user-registered shapes (label, type, bounds)",
+                command = "",
+                header = "Registered shapes",
+                message = write_message(shapes)
+            ))
+
 
 class LayersInstructions:
 

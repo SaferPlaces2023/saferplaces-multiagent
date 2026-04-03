@@ -1,5 +1,7 @@
 """Final responder prompts for generating user-facing responses."""
 
+import datetime
+
 from typing import Dict, Any
 
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -41,16 +43,23 @@ class FinalResponderInstructions:
                 def stable(state: MABaseGraphState) -> Prompt:
                     parsed_request_context = RequestParserInstructions.Prompts._ParsedRequest.stable(state)
                     layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
+                    shapes_context = LayersAgentPrompts.BasicShapesSummary.stable(state)
                     conversation_context = Prompt(dict(
                         header="[CONVERSATION HISTORY]",
                         message=ContextBuilder.conversation_history(state, max_messages=10)
                     ))
+                    nowtime = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
                     message = (
+                        f"[CURRENT UTC0 DATETIME] {nowtime}\n"
+                        "\n"
                         f"{parsed_request_context.header}\n"
                         f"{parsed_request_context.message}\n"
                         "\n"
                         f"{layer_context.header}\n"
                         f"{layer_context.message}\n"
+                        "\n"
+                        f"{shapes_context.header}\n"
+                        f"{shapes_context.message}\n"
                         "\n"
                         f"{conversation_context.header}\n"
                         f"{conversation_context.message}\n"

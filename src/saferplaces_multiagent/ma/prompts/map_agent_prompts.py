@@ -289,7 +289,13 @@ def _format_layer_registry_summary(layer_registry: list) -> str:
         title = layer.get("title", "unknown")
         ltype = layer.get("type", "?")
         src = layer.get("src", "")
-        lines.append(f"- {title} (type: {ltype}, src: {src})")
+        line = f"- {title} (type: {ltype}, src: {src})"
+        meta = layer.get("metadata") or {}
+        attrs = meta.get("attributes")
+        if attrs:
+            attr_names = ", ".join(str(k) for k in attrs.keys())
+            line += f"\n  attributes: {attr_names}"
+        lines.append(line)
     return "\n".join(lines)
 
 
@@ -359,3 +365,64 @@ def _serialize_geometry_for_context(geom: dict) -> str:
         return f"(multi-geometry, {len(coords)} features, {bbox_str})"
 
     return json.dumps(coords)
+
+
+# ---------------------------------------------------------------------------
+# MapAgentInstructions — structured prompt hierarchy (InvokeOneShot pattern)
+# ---------------------------------------------------------------------------
+
+from langchain_core.messages import SystemMessage as _SystemMessage
+
+
+class MapAgentInstructions:
+
+    class InvokeTools:
+
+        class Prompts:
+
+            class _RoleAndScope:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return MapAgentPrompts.ContextPrompt.stable()
+
+            class _ExecutionContext:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    return MapAgentPrompts.ExecutionContext.stable(state)
+
+            class _Request:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> Prompt:
+                    request = state.get("map_request")
+                    if not request:
+                        # DOC: When invoked from a supervisor plan, map_request is None;
+                        # use the current plan step goal as the request.
+                        plan = state.get("plan") or []
+                        current_step = state.get("current_step") or 0
+                        if plan and current_step < len(plan):
+                            request = plan[current_step]["goal"]
+                    return Prompt(dict(
+                        header="[REQUEST]",
+                        message=str(request or ""),
+                    ))
+
+        class Invocation:
+
+            class InvokeOneShot:
+
+                @staticmethod
+                def stable(state: MABaseGraphState) -> list:
+                    role = MapAgentInstructions.InvokeTools.Prompts._RoleAndScope.stable(state)
+                    ctx = MapAgentInstructions.InvokeTools.Prompts._ExecutionContext.stable(state)
+                    req = MapAgentInstructions.InvokeTools.Prompts._Request.stable(state)
+
+                    system_message = _SystemMessage(content=role.message)
+                    human_content = (
+                        f"{ctx.message}\n\n"
+                        f"[REQUEST]\n{req.message}\n"
+                    )
+                    from langchain_core.messages import HumanMessage as _HumanMessage
+                    return [system_message, _HumanMessage(content=human_content)]

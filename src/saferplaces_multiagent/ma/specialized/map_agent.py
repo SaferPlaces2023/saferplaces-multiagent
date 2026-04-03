@@ -3,14 +3,14 @@ from __future__ import annotations
 
 from typing import List
 
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import BaseTool
 
 from ...multiagent_node import MultiAgentNode
-from ...common.states import MABaseGraphState, StateManager
+from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
 from ..names import NodeNames
-from ..prompts.map_agent_prompts import MapAgentPrompts
+from ..prompts.map_agent_prompts import MapAgentInstructions
 from .tools.layer_symbology_tool import LayerSymbologyTool
 from .tools.register_shape_tool import RegisterShapeTool
 
@@ -117,37 +117,27 @@ class MapAgent(MultiAgentNode):
     # ------------------------------------------------------------------
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        """Execute all map operations for the current goal and advance the plan step."""
+        """Execute all map operations for the current goal."""
         print(f"[{self.name}] → Processing map operations...")
 
-        # Inject current state into each tool (tools read/write the state dict directly)
+        # DOC: Inject current state into each tool (tools read/write state dict directly)
         for tool in self._tools:
             tool.state = state
 
-        system_message = MapAgentPrompts.ContextPrompt.stable().to(SystemMessage)
-        human_message = MapAgentPrompts.ExecutionContext.stable(state).to(HumanMessage)
-        human_message.content += f"\nGoal: {state.get('map_request')}"
-
-        invoke_messages = [system_message, human_message]
+        invoke_messages = MapAgentInstructions.InvokeTools.Invocation.InvokeOneShot.stable(state)
         invocation = self.llm.invoke(invoke_messages)
 
         if not getattr(invocation, "tool_calls", None):
             print(f"[{self.name}] ✓ No tool calls")
-            state["map_invocation"] = invocation
+            state["map_invocation"] = None
+            state["map_request"] = None
+            state["supervisor_invocation_reason"] = "step_no_tools"
             return state
 
         _, final_invocation = self._execute_tool_calls(invoke_messages, invocation)
         state["map_invocation"] = final_invocation
-
-        # Prevent re-routing to this agent on subsequent supervisor cycles
         state["map_request"] = None
-
-        # MapAgent has no Executor node, so it increments both step counters here:
-        # the agent-level counter (map_current_step) and the global plan step counter.
-        if state.get("parsed_request") is not None:
-            StateManager.mark_agent_step_complete(state, "map")
-            if state.get("current_step") is not None:
-                state["current_step"] += 1
+        state["supervisor_invocation_reason"] = "step_done"
 
         print(f"[{self.name}] ✓ Done")
         return state

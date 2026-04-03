@@ -130,14 +130,25 @@ class SupervisorAgent(MultiAgentNode):
 
         # DOC: From Specialized agent step (with no tool calls)
         elif invocation_reason == "step_no_tools":
-            state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
-            modify_plan_invocation = SupervisorInstructions.PlanModificationDueStepNoTools.Invocations.ReplanDueNoToolsOneShot.stable(state)
-            plan: ExecutionPlan = self.llm.invoke(modify_plan_invocation)
-            plan_steps = [ step.model_dump() for step in plan.steps if step.agent in self.specialized_agents ]
-            state["plan"] = plan_steps
-            if len(plan_steps) > 0:
-                state["current_step"] = 0
-                state["plan_confirmation"] = PLAN_PENDING
+            _current_step = state.get("current_step") or 0
+            _plan = state.get("plan") or []
+            _is_support_agent = (
+                _current_step < len(_plan)
+                and _plan[_current_step]["agent"] in [NodeNames.LAYERS_AGENT, NodeNames.MAP_AGENT]
+            )
+            if _is_support_agent:
+                # DOC: Support agents (map/layers): no tools = nothing to do → advance silently
+                print(f"[{self.name}] → Support agent step_no_tools — advancing step")
+                state["current_step"] = _current_step + 1
+            else:
+                state["replan_iteration_count"] = (state.get("replan_iteration_count") or 0) + 1
+                modify_plan_invocation = SupervisorInstructions.PlanModificationDueStepNoTools.Invocations.ReplanDueNoToolsOneShot.stable(state)
+                plan: ExecutionPlan = self.llm.invoke(modify_plan_invocation)
+                plan_steps = [ step.model_dump() for step in plan.steps if step.agent in self.specialized_agents ]
+                state["plan"] = plan_steps
+                if len(plan_steps) > 0:
+                    state["current_step"] = 0
+                    state["plan_confirmation"] = PLAN_PENDING
         
         # DOC: From Specialized agent InvocationConfirm (abort)
         elif invocation_reason == "step_skip":
@@ -189,7 +200,9 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         plan = state.get('plan')
         current_step = state.get('current_step')
 
-        if plan and len(plan) > current_step and plan[current_step]['agent'] == NodeNames.LAYERS_AGENT:
+        ignore_agents = [NodeNames.LAYERS_AGENT, NodeNames.MAP_AGENT]
+
+        if plan and len(plan) > current_step and plan[current_step]['agent'] in ignore_agents:
             return True
 
         if current_step >= len(plan):

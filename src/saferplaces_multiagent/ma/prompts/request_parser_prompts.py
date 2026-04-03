@@ -1,5 +1,7 @@
 """Request parser prompts for the Request Analyzer (§2 PLN-013)."""
 
+import datetime
+
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from . import Prompt
@@ -32,6 +34,7 @@ class RequestParserInstructions:
             def stable(state: MABaseGraphState) -> Prompt:
 
                 layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
+                shapes_context = LayersAgentPrompts.BasicShapesSummary.stable(state)
 
                 # map_context = MapAgentPrompts.MapContext
 
@@ -40,9 +43,16 @@ class RequestParserInstructions:
                     message = ContextBuilder.conversation_history(state, max_messages=5)
                 ))
 
+                nowtime = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+
                 message = (
+                    f"[CURRENT UTC0 DATETIME] {nowtime}\n"
+                    "\n"
                     f"{layer_context.header}\n"
                     f"{layer_context.message}\n"
+                    "\n"
+                    f"{shapes_context.header}\n"
+                    f"{shapes_context.message}\n"
                     "\n"
                     f"{conversation_context.header}\n"
                     f"{conversation_context.message}\n"
