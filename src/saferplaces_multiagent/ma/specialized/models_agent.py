@@ -21,7 +21,7 @@ from .tools.safer_rain_tool import SaferRainTool
 from .tools.digital_twin_tool import DigitalTwinTool
 from .tools.safer_buildings_tool import SaferBuildingsTool
 from .tools.safer_fire_tool import SaferFireTool
-from .layers_agent import LayersAgent
+from .layers_agent import LayersAgent, LayersExecutor
 # from .confirmation_utils import ToolInvocationConfirmationHandler
 # from .validation_utils import ToolValidationResponseHandler
 from ..prompts.models_agent_prompts import ModelsInstructions
@@ -418,6 +418,7 @@ class ModelsExecutor(MultiAgentNode):
     ):
         super().__init__(name, log_state)
         self.layers_agent = LayersAgent()
+        self.layers_executor = LayersExecutor()
 
     
     def _execute_tool_call(self, tool_name:str, tool_args: Dict[str, Any], state: MABaseGraphState) -> ToolMessage:
@@ -461,20 +462,10 @@ class ModelsExecutor(MultiAgentNode):
             f"- If metadata are absent, do not generate any"
         )
 
-        # Execute layers agent
+        # Execute layers agent + executor
         print(f"[{self.name}] → Adding layer to registry...")
-        layer_agent_state = self.layers_agent(state)
-        
-        # Update state with new layer registry
-        state["layer_registry"] = layer_agent_state.get("layer_registry", state.get("layer_registry", []))
-
-        # Mark additional_context as dirty since registry changed
-        if "additional_context" not in state:
-            state["additional_context"] = {}
-        if "relevant_layers" not in state["additional_context"]:
-            state["additional_context"]["relevant_layers"] = {}
-        
-        state["additional_context"]["relevant_layers"]["is_dirty"] = True
+        self.layers_agent(state)
+        self.layers_executor(state)
 
         print(f"[{self.name}] ✓ Layer added to registry")
             

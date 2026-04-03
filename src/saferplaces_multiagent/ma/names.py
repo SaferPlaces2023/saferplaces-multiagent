@@ -30,6 +30,7 @@ class NodeNames:
     MODELS_EXECUTOR = "models_executor"
 
     LAYERS_AGENT = "layers_agent"
+    LAYERS_EXECUTOR = "layers_executor"
 
     MAP_AGENT = "map_agent"  # PLN-014
 

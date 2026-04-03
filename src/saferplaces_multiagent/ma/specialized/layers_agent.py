@@ -14,6 +14,7 @@ from ...common.base_models import Layer
 from ...common.utils import _base_llm, vector_specs, raster_specs, raster_ts_specs, common_specs
 # from ...nodes.base.base_models import Layer
 from ..names import NodeNames
+from ..prompts.layers_agent_promps import LayersAgentPrompts, LayersInstructions
 
 
 # Registry-friendly description for the Layers agent.
@@ -399,77 +400,138 @@ class ChooseLayerTool(BaseTool):
             return f"Error choosing layer: {str(e)}"
 
 
-class LayersAgent(MultiAgentNode):
-    """Fast agent for managing geospatial layers - executes tools immediately."""
-    
-    def __init__(self, name: str = NodeNames.LAYERS_AGENT, log_state: bool = True):
-        super().__init__(name, log_state)
-        self.tools = [
-            ListLayersTool(),
-            GetLayerTool(),
-            AddLayerTool(),
-            RemoveLayerTool(),
-            UpdateLayerTool(),
-            SearchByTypeTool(),
-            BuildLayerFromPromptTool(),
-            ChooseLayerTool()
-        ]
-        self.llm = _base_llm.bind_tools(self.tools)
+# ============================================================================
+# Layers Agent Tools Registry
+# ============================================================================
 
-    # def __call__(self, state: MABaseGraphState) -> MABaseGraphState:
-    #     return self.run(state)
+class LayersAgentTools:
+    """Registry for layers agent tools. Non-singleton — registry is state-scoped."""
 
-    def run(self, state: MABaseGraphState) -> MABaseGraphState:
-        print(f"[{self.name}] → Processing layer operations...")
-        
-        registry = LayersRegistry(from_state=state)
-        
-        # Inject registry into all tools
-        for tool in self.tools:
+    _tool_classes = [
+        ListLayersTool,
+        GetLayerTool,
+        AddLayerTool,
+        RemoveLayerTool,
+        UpdateLayerTool,
+        SearchByTypeTool,
+        BuildLayerFromPromptTool,
+        ChooseLayerTool,
+    ]
+
+    def __init__(self) -> None:
+        self._tools = [cls() for cls in self._tool_classes]
+
+    @property
+    def tools_instances(self) -> List[BaseTool]:
+        return self._tools
+
+    def inject_registry(self, registry: LayersRegistry) -> None:
+        for tool in self._tools:
             tool.registry = registry
 
-        # Invoke LLM with tools
-        invoke_messages = [
-            SystemMessage(content="You are a specialized agent for managing geospatial layers. Use the available tools to accomplish the goal."),
-            HumanMessage(content=f"Goal: {state['layers_request']}")
-        ]
+    def get(self, tool_name: str) -> Optional[BaseTool]:
+        return next((t for t in self._tools if t.name == tool_name), None)
 
-        invocation = self.llm.invoke(invoke_messages)
-        
-        # No tool calls - just return message
-        if not hasattr(invocation, "tool_calls") or len(invocation.tool_calls) == 0:
-            print(f"[{self.name}] ✓ No tool calls")
-            # state['messages'] = invocation
-            state["layer_registry"] = [l.to_dict() for l in registry.list_layers()]
+
+# ============================================================================
+# Layers Agent
+# ============================================================================
+
+class LayersAgent(MultiAgentNode):
+    """LLM invocation node — selects and configures layer tools from layers_request.
+    
+    When called inline (from other agents), also executes tools immediately via LayersExecutor.
+    """
+
+    def __init__(self, name: str = NodeNames.LAYERS_AGENT, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
+        self._tools_registry = LayersAgentTools()
+        self.llm = _base_llm.bind_tools(self._tools_registry.tools_instances)
+        self._executor = LayersExecutor()
+
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        print(f"[{self.name}] → Invoking tools for layers operation...")
+
+        invocation_messages = LayersInstructions.InvokeTools.Invocation.InvokeOneShot.stable(state)
+        invocation = self.llm.invoke(invocation_messages)
+
+        if getattr(invocation, "tool_calls", None):
+            state["layers_invocation"] = invocation
+            print(f"[{self.name}] → Tool calls: {[tc['name'] for tc in invocation.tool_calls]}")
+            state = self._executor.run(state)
+        else:
+            state["layers_invocation"] = None
+            print(f"[{self.name}] → No tool calls generated")
+
+        return state
+
+
+# ============================================================================
+# Layers Executor
+# ============================================================================
+
+class LayersExecutor(MultiAgentNode):
+    """Execution node — runs layer tool calls and updates layer_registry in state."""
+
+    def __init__(self, name: str = NodeNames.LAYERS_EXECUTOR, log_state: bool = True) -> None:
+        super().__init__(name, log_state)
+        self._tools_registry = LayersAgentTools()
+
+    def run(self, state: MABaseGraphState) -> MABaseGraphState:
+        invocation = state.get("layers_invocation")
+
+        # DOC: No tool calls — nothing to execute
+        if not invocation or not getattr(invocation, "tool_calls", None):
+            state["layers_invocation"] = None
+            state["supervisor_invocation_reason"] = "step_no_tools"
             return state
 
-        # Execute tools immediately
-        print(f"[{self.name}] → Executing {len(invocation.tool_calls)} tool(s): {[tc['name'] for tc in invocation.tool_calls]}")
-        
+        # DOC: Build registry from current state and inject into tools
+        registry = LayersRegistry(from_state=state)
+        self._tools_registry.inject_registry(registry)
+
         tool_responses = []
+        step_error = False
+
         for tool_call in invocation.tool_calls:
             tool_name = tool_call["name"]
-            tool_args = tool_call.get("args", {})
-            
-            # Find and execute tool
-            tool = next((t for t in self.tools if t.name == tool_name), None)
-            if tool:
-                print(f"[{self.name}]   → {tool_name}({tool_args})")
-                result = tool._run(**tool_args)
-                
-                tool_responses.append(ToolMessage(
-                    content=result,
-                    tool_call_id=tool_call["id"]
-                ))
-            else:
-                tool_responses.append(ToolMessage(
-                    content=f"Tool {tool_name} not found",
-                    tool_call_id=tool_call["id"]
-                ))
+            tool_args = tool_call.get("args") or {}
 
-        state["layers_invocation"] = invocation
-        state["layers_response"] = tool_responses
+            print(f"[{self.name}] → Executing: {tool_name}({tool_args})")
+
+            tool = self._tools_registry.get(tool_name)
+            if tool:
+                try:
+                    result = tool._run(**tool_args)
+                except Exception as exc:
+                    result = f"Error executing {tool_name}: {exc}"
+                    step_error = True
+            else:
+                result = f"Tool '{tool_name}' not found in registry"
+                step_error = True
+
+            tool_responses.append(ToolMessage(
+                content=result if isinstance(result, str) else str(result),
+                tool_call_id=tool_call["id"],
+                name=tool_name,
+            ))
+
+            if step_error:
+                break
+
+        # DOC: Update state
+        state["layers_invocation"] = None
+        state["messages"] = [invocation, *tool_responses]
         state["layer_registry"] = [l.to_dict() for l in registry.list_layers()]
-        
-        print(f"[{self.name}] ✓ Done")
+        state["supervisor_invocation_reason"] = "step_error" if step_error else "step_done"
+
+        # # DOC: Mark relevant_layers context as dirty [UNUSED]
+        # if "additional_context" not in state:
+        #     state["additional_context"] = {}
+        # if "relevant_layers" not in state["additional_context"]:
+        #     state["additional_context"]["relevant_layers"] = {}
+        # state["additional_context"]["relevant_layers"]["is_dirty"] = True
+
+        print(f"[{self.name}] ✓ Done — registry updated ({len(registry.list_layers())} layers)")
+
         return state

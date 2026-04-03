@@ -11,7 +11,7 @@ from ...common.utils import _base_llm
 from ...common.response_classifier import ResponseClassifier
 from .tools.dpc_retriever_tool import DPCRetrieverTool
 from .tools.meteoblue_retriever_tool import MeteoblueRetrieverTool
-from .layers_agent import LayersAgent
+from .layers_agent import LayersAgent, LayersExecutor
 from ..names import NodeNames
 from ..prompts.safercast_agent_prompts import SaferCastInstructions
 
@@ -335,6 +335,7 @@ class DataRetrieverExecutor(MultiAgentNode):
     def __init__(self, name: str = NodeNames.RETRIEVER_EXECUTOR, log_state: bool = True) -> None:
         super().__init__(name, log_state)
         self.layers_agent = LayersAgent()
+        self.layers_executor = LayersExecutor()
 
     def _execute_tool_call(self, tool_name: str, tool_args: Dict[str, Any], state: MABaseGraphState) -> Any:
         """Execute a single tool call and return result."""
@@ -366,14 +367,8 @@ class DataRetrieverExecutor(MultiAgentNode):
         )
 
         print(f"[{self.name}] → Adding layer to registry...")
-        layer_agent_state = self.layers_agent(state)
-        state["layer_registry"] = layer_agent_state.get("layer_registry", state.get("layer_registry", []))
-
-        if "additional_context" not in state:
-            state["additional_context"] = {}
-        if "relevant_layers" not in state["additional_context"]:
-            state["additional_context"]["relevant_layers"] = {}
-        state["additional_context"]["relevant_layers"]["is_dirty"] = True
+        self.layers_agent(state)
+        self.layers_executor(state)
 
         print(f"[{self.name}] ✓ Layer added to registry")
 

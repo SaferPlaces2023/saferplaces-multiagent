@@ -185,7 +185,16 @@ class SupervisorPlannerConfirm(MultiAgentNode):
 
     @staticmethod
     def _unnecessary_confirmation(state: MABaseGraphState) -> bool:
-        # TODO: write logic (es: only 1 step, skip for layer/map agents)
+        
+        plan = state.get('plan')
+        current_step = state.get('current_step')
+
+        if plan and len(plan) > current_step and plan[current_step]['agent'] == NodeNames.LAYERS_AGENT:
+            return True
+
+        if current_step >= len(plan):
+            return True
+
         return False
 
     @staticmethod

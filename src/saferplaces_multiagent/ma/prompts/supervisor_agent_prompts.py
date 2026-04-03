@@ -40,6 +40,10 @@ class SupervisorInstructions:
                         "- retriever_agent: retrieves observational rainfall data (DPC radar) and weather forecasts (Meteoblue). Use BEFORE models_agent when simulation input data is not yet available.\n"
                         "- models_agent: creates digital twin base layers (DEM, buildings, land use) or runs flood/fire simulations (SaferRain, SaferFire). Requires input layers to already exist.\n"
                         "- map_agent: adds, removes, styles, or queries layers in the project registry. Use for display or layer management tasks.\n"
+                        "- layers_agent: support agent that reads, queries and updates the layer registry. Does NOT run simulations or retrieve external data.\n"
+                        "  Use layers_agent when: (a) the user asks about available layers, layer metadata, or layer status; "
+                        "(b) a required layer attribute (bbox, src, type, metadata) is not already present in the current context summary. "
+                        "Do NOT add a layers_agent step if the layer information is already visible in the [AVAILABLE LAYERS] context.\n"
                         "\n"
                         "RULES:\n"
                         "1. Each step references exactly one agent from the list above.\n"
@@ -47,6 +51,7 @@ class SupervisorInstructions:
                         "3. Preserve data dependencies: a step that requires output from a previous step must appear after it (e.g., fetch radar data BEFORE running SaferRain).\n"
                         "4. If the request requires no agent action (conversational, out-of-scope, or already answered), output an empty plan [].\n"
                         "5. Never fabricate agents or actions outside the platform's documented capabilities.\n"
+                        "6. layers_agent is a support step — prefer it only when layer information is genuinely missing from context. Never use it redundantly.\n"
                     )
 
                     return Prompt(dict(
@@ -66,6 +71,8 @@ class SupervisorInstructions:
                         "- retriever_agent: fetches observational rainfall data (DPC radar) and weather forecasts (Meteoblue)\n"
                         "- models_agent: generate digital twins layers or runs meteorological simulation (SaferRain) on a given scenario\n"
                         "- map_agent: adds, removes, styles or queries project's layer information\n"
+                        "- layers_agent: support agent — reads, queries and updates the layer registry without running simulations or fetching external data. "
+                        "Use it when the user asks about existing layers or when a required layer attribute is not already available in context.\n"
                         "\n"
                         "Rules:\n"
                         "- A plan step can only reference one of the agents above.\n"
@@ -74,6 +81,7 @@ class SupervisorInstructions:
                         "- If a step requires data from a previous step, ensure the previous step is included in the plan.\n"
                         "- If the request is self-contained and needs no sub-agent, produce an empty plan [].\n"
                         "- Never include actions outside the platform's scope.\n"
+                        "- Use layers_agent only when layer information is genuinely missing from the current context — do not add it redundantly.\n"
                     )
 
                     return Prompt(dict(

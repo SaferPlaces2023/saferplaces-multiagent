@@ -202,6 +202,9 @@ def build_multiagent_graph():
     # Link specialized agents back to supervisor
     graph_builder.add_edge(NodeNames.RETRIEVER_SUBGRAPH, NodeNames.SUPERVISOR_SUBGRAPH)
     graph_builder.add_edge(NodeNames.MODELS_SUBGRAPH, NodeNames.SUPERVISOR_SUBGRAPH)
+
+    graph_builder.add_edge(NodeNames.LAYERS_AGENT, NodeNames.SUPERVISOR_SUBGRAPH)
+
     # MAP_AGENT loops to supervisor when called from a plan, or ends for state-only invocations
     graph_builder.add_conditional_edges(
         NodeNames.MAP_AGENT,
