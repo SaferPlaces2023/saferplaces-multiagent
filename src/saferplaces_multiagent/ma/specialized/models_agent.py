@@ -14,7 +14,6 @@ from saferplaces_multiagent.multiagent_node import MultiAgentNode
 from ...common.states import MABaseGraphState, StateManager, build_nowtime_system_message
 from ...common.utils import _base_llm
 from ...common.templates import format_tool_confirmation, format_validation_errors
-# from ...common.execution_narrative import StepResult, LayerSummary
 from ...common import names as N
 from ..names import NodeNames
 from .tools.safer_rain_tool import SaferRainTool

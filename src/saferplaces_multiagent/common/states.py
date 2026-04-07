@@ -22,13 +22,9 @@ from .base_models import compute_geometry_metadata
 
 from . import utils
 from .base_models import AdditionalContext, ConfirmationState, PlanConfirmationStatus, MapView, MapCommand, DrawnShape
-from .execution_narrative import ExecutionNarrative
 
 
 # DOC: This is a basic state that will be used by all nodes in the graph. It ha one key: "messages" : list[AnyMessage]
-
-
-
 
 
 class MABaseGraphState(TypedDict):
@@ -54,7 +50,6 @@ class MABaseGraphState(TypedDict):
 
     # DOC: multi-agent metadata
     parsed_request: Dict[str, Any]
-    additional_context: AdditionalContext
     supervisor_next_node: str
     supervisor_invocation_reason: str
     # DOC: handling user-agent conversation flow 
@@ -67,9 +62,6 @@ class MABaseGraphState(TypedDict):
     current_step: Optional[int]
     tool_results: Dict[str, Any]
     replan_iteration_count: Optional[int]  # Incremented on every modify/reject cycle; reset on new request
-    
-    # DOC: Execution narrative — structured story of execution (§3 of PLN-013)
-    execution_narrative: Optional[ExecutionNarrative] = None
 
     # DOC: specialized retriever agent state
     retriever_invocation: AIMessage
@@ -129,18 +121,8 @@ class StateManager:
         state['interaction_budget'] = state.get('interaction_budget') or 8
         state['replan_iteration_count'] = 0
         
-        # Initialize execution narrative for new cycle
-        state['execution_narrative'] = ExecutionNarrative()
-        
         # Clear previous tool results
         state['tool_results'] = {}
-        
-        # Reset additional context for new cycle
-        if 'additional_context' not in state:
-            state['additional_context'] = {}
-        if 'relevant_layers' not in state['additional_context']:
-            state['additional_context']['relevant_layers'] = {}
-        state['additional_context']['relevant_layers']['is_dirty'] = True  # Will refresh in first ROUTER call
         
         # Clear specialized agent state
         StateManager._clear_specialized_agent_state(state, 'retriever')
@@ -220,10 +202,6 @@ class StateManager:
         # Clear tool results (snapshot taken in final responder)
         state['tool_results'] = {}
         
-        # Keep execution narrative for logging/debugging but mark as finalized
-        if state.get('execution_narrative'):
-            state['execution_narrative'].completed_at = datetime.datetime.utcnow().isoformat()
-        
         # Clear specialized agent state
         StateManager._clear_specialized_agent_state(state, 'retriever')
         StateManager._clear_specialized_agent_state(state, 'models')
@@ -238,9 +216,6 @@ class StateManager:
         state['map_commands'] = []
         StateManager._clear_specialized_agent_state(state, 'map')
         
-        # Reset additional context dirty flag
-        if 'additional_context' in state and 'relevant_layers' in state['additional_context']:
-            state['additional_context']['relevant_layers']['is_dirty'] = False
 
     @staticmethod
     def _clear_specialized_agent_state(state: MABaseGraphState, agent_type: str) -> None:

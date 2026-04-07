@@ -17,23 +17,6 @@ from ..names import NodeNames
 from ..prompts.layers_agent_promps import LayersAgentPrompts, LayersInstructions
 
 
-# Registry-friendly description for the Layers agent.
-# Use this to populate the supervisor agent registry.
-LAYERS_AGENT_DESCRIPTION = {
-    "name": NodeNames.LAYERS_AGENT,
-    "description": (
-        "Agent that manages a registry/list of geospatial layers. Each layer is a simple "
-        "record describing title, type (raster|vector), source and optional metadata.\n"
-        "This agent can list, select, add, remove, and update layers."
-    ),
-    "examples": [
-        "List available layers",
-        "Add a raster layer with src pointing to a tile service",
-        "Get metadata for a vector layer by title",
-    ]
-}
-
-
 class LayersRegistry:
     """In-memory registry of geospatial layers, scoped to a single conversation."""
     
@@ -524,13 +507,6 @@ class LayersExecutor(MultiAgentNode):
         state["messages"] = [invocation, *tool_responses]
         state["layer_registry"] = [l.to_dict() for l in registry.list_layers()]
         state["supervisor_invocation_reason"] = "step_error" if step_error else "step_done"
-
-        # # DOC: Mark relevant_layers context as dirty [UNUSED]
-        # if "additional_context" not in state:
-        #     state["additional_context"] = {}
-        # if "relevant_layers" not in state["additional_context"]:
-        #     state["additional_context"]["relevant_layers"] = {}
-        # state["additional_context"]["relevant_layers"]["is_dirty"] = True
 
         print(f"[{self.name}] ✓ Done — registry updated ({len(registry.list_layers())} layers)")
 

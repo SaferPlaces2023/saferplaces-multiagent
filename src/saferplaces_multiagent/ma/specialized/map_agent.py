@@ -15,38 +15,6 @@ from .tools.layer_symbology_tool import LayerSymbologyTool
 from .tools.register_shape_tool import RegisterShapeTool
 
 
-# Registry-friendly description for the Map agent.
-MAP_AGENT_DESCRIPTION = {
-    "name": NodeNames.MAP_AGENT,
-    "description": (
-        "Agent that manages map frontend interactions: moves the viewport, changes "
-        "the visual style (symbology) of geospatial layers, and creates/registers "
-        "vector shapes (points, polygons, lines) derived from natural language requests.\n"
-        "Use this agent when the user wants to navigate the map, zoom to a location, "
-        "change a layer appearance, or generate/register a geometric shape.\n"
-        "Do NOT use for flood simulations or external data retrieval."
-    ),
-    "examples": [
-        "Sposta la mappa su Roma",
-        "Zoom sulla zona alluvionata",
-        "Centra la mappa su Firenze",
-        "Colora il layer DEM con una palette da blu ad arancione",
-        "Rendi il layer flood semi-trasparente",
-        "Crea una bbox attorno ad una regione o città",
-        "Metti un punto nel centro della shape che ho disegnato",
-    ],
-    "outputs": (
-        "Updated map_view state; MapCommand(s) for the frontend "
-        "(move_view | set_layer_style | sync_shapes); "
-        "new entries in shapes_registry (create_shape | register_shape)."
-    ),
-    "prerequisites": "For set_layer_style: the target layer must exist in the layer_registry.",
-    "implicit_step_rules": (
-        "Use map_agent for visual/navigation requests only. "
-        "Do NOT combine with simulations in the same step."
-    ),
-}
-
 
 class MapAgent(MultiAgentNode):
     """Fast agent for map interactions — executes tools immediately without a human-in-the-loop

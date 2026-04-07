@@ -13,15 +13,9 @@ from ...common.states import MABaseGraphState, StateManager
 from ...common import utils
 from ...common.utils import _base_llm
 from ...common.response_classifier import ResponseClassifier
-from ...common.templates import format_plan_confirmation
-from ...common.context_builder import ContextBuilder, PlanningContext
-from ...common.execution_narrative import ExecutionNarrative
 from ..names import NodeNames
-from ..prompts.supervisor_agent_prompts import OrchestratorPrompts, SupervisorInstructions
+from ..prompts.supervisor_agent_prompts import SupervisorInstructions
 from ..specialized.layers_agent import LayersAgent
-from ..specialized.models_agent import MODELS_AGENT_DESCRIPTION
-from ..specialized.safercast_agent import SAFERCAST_AGENT_DESCRIPTION
-from ..specialized.map_agent import MAP_AGENT_DESCRIPTION
 
 
 # ============================================================================
@@ -262,7 +256,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
         # DOC: Interrupt for plan clarification
         clarify_invocation = SupervisorInstructions.PlanClarification.Invocations.PlanClarifyOneShot.stable(state)
         clarify_message = (
-            f"{self.llm.invoke(clarify_invocation)}\n\n"
+            f"{self.llm.invoke(clarify_invocation).content}\n\n"
             "Do you want to proceed with this plan?"
         )
         interruption = interrupt({
