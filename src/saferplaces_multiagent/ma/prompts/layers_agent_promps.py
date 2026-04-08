@@ -91,13 +91,17 @@ class LayersAgentPrompts:
 
             shapes = state.get("shapes_registry") or []
 
-            return Prompt(dict(
+            p =  Prompt(dict(
                 title = "ShapesRegistrySummary",
                 description = "Compact summary of user-registered shapes (label, type, bounds)",
                 command = "",
                 header = "Registered shapes",
                 message = write_message(shapes)
             ))
+
+            print('\n\n===============\n', p.message, '\n==============\n\n\n')
+
+            return p
 
 
 class LayersInstructions:

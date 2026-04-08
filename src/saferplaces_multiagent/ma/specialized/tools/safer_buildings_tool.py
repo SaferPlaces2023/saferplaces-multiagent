@@ -43,6 +43,9 @@ DEFAULT_WD_THRESH = 0.5
 DEFAULT_FLOOD_MODE = "BUFFER"
 DEFAULT_PROVIDER = "OVERTURE"
 DEFAULT_T_SRS = "EPSG:4326"
+DEFAULT_SUMMARY = True
+DEFAULT_SUMMARY_ON = "subtype"
+DEFAULT_STATS = True
 
 # Allowed values for validation
 FLOOD_MODES = ["BUFFER", "IN-AREA", "ALL"]
@@ -368,11 +371,27 @@ class SaferBuildingsTool(BaseTool):
             state = kwargs.pop('_graph_state', None)
             filename = f"flooded-buildings-{utils.random_id8()}.geojson"
             return f"{s3_utils._STATE_BUCKET_(state)}/saferbuildings-out/{filename}"
+        
+        def infer_summary(**kwargs: Any) -> bool:
+            """Infer default summary flag."""
+            return DEFAULT_SUMMARY
+        
+        def infer_summary_on(**kwargs: Any) -> bool:
+            """Infer default summary_on flag."""
+            return DEFAULT_SUMMARY_ON
+
+        def infer_stats(**kwargs: Any) -> bool:
+            """Infer default stats flag."""
+            return DEFAULT_STATS
+
 
         return {
             'provider': infer_provider,
             't_srs': infer_t_srs,
             'out': infer_out,
+            'summary': infer_summary,
+            'summary_on': infer_summary_on,
+            'stats': infer_stats,
         }
 
     def _execute(self, **kwargs: Any) -> Dict[str, Any]:

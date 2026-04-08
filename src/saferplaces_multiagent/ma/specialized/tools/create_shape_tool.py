@@ -59,8 +59,9 @@ class CreateShapeTool(BaseTool):
     name: str = "create_shape"
     description: str = (
         "Generate a new GeoJSON geometry (point, line, or polygon) from a natural language "
-        "request using the LLM. The generated shape is added to the shapes_registry and sent "
-        "to the frontend via a 'sync_shapes' MapCommand."
+        "request using the LLM. The generated shape is AUTOMATICALLY added to shapes_registry "
+        "and sent to the frontend via a 'sync_shapes' MapCommand. "
+        "Do NOT call register_shape after create_shape — registration is already handled internally."
     )
     args_schema: type[BaseModel] = CreateShapeInput
 

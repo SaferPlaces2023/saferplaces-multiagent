@@ -27,12 +27,12 @@ class StateProcessor(MultiAgentNode):
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{self.name}] → Checking state...")
 
-        new_shapes = self._find_unregistered_shapes(state)
+        new_shapes = self._find_shapes_to_register(state)
         if new_shapes:
             ids = [s["collection_id"] for s in new_shapes]
-            print(f"[{self.name}]   ✦ New unregistered shapes: {ids}")
+            print(f"[{self.name}]   ✦ Shapes to register/update: {ids}")
             state["map_request"] = (
-                f"Register the following newly drawn shapes into the shapes registry: {ids}. "
+                f"Register or update the following shapes into the shapes registry: {ids}. "
                 f"Call register_shape once for each collection_id in the list."
             )
             # DOC: Execute inline — MapAgent is a support agent, no graph routing needed
@@ -44,9 +44,20 @@ class StateProcessor(MultiAgentNode):
         return state
 
     @staticmethod
-    def _find_unregistered_shapes(state: MABaseGraphState) -> list:
-        """Return shapes present in user_drawn_shapes but absent from shapes_registry."""
+    def _find_shapes_to_register(state: MABaseGraphState) -> list:
+        """Return shapes that need registration: new (absent from registry) or modified (geometry changed)."""
         user_drawn = state.get("user_drawn_shapes") or []
         shapes_registry = state.get("shapes_registry") or []
-        registered_ids = {s.get("shape_id") for s in shapes_registry}
-        return [s for s in user_drawn if s.get("collection_id") not in registered_ids]
+        registry_map = {s.get("shape_id"): s for s in shapes_registry}
+
+        result = []
+        for shape in user_drawn:
+            cid = shape.get("collection_id")
+            if cid not in registry_map:
+                result.append(shape)
+            else:
+                current_geometry = (shape.get("features") or [{}])[0].get("geometry", {})
+                registered_geometry = registry_map[cid].get("geometry", {})
+                if current_geometry != registered_geometry:
+                    result.append(shape)
+        return result

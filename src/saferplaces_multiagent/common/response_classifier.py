@@ -166,13 +166,13 @@ class ResponseClassifier:
         if context == "validation" and _AUTOCORRECT_PATTERN.match(text):
             return "auto_correct"
 
-        # Clarify — question-like patterns (medium confidence)
-        if "?" in text and len(text) < 150 and _CLARIFY_INDICATORS.match(text):
-            return "clarify" if context != "validation" else "clarify_requirements"
-
         # Modify — contains change/modify keywords (medium confidence)
         if _MODIFY_INDICATORS.search(text):
             return "modify" if context != "validation" else "provide_corrections"
+
+        # Clarify — question-like patterns (medium confidence)
+        if "?" in text and len(text) < 150 and _CLARIFY_INDICATORS.match(text):
+            return "clarify" if context != "validation" else "clarify_requirements"
 
         return None  # No rule matched → fall through to LLM
 
@@ -186,16 +186,42 @@ class ResponseClassifier:
         """Level 2: LLM zero-shot classification."""
         labels_str = " / ".join(sorted(valid_labels))
 
+        # classification_prompt = (
+        #     f"Classify the user's response into ONE of these categories: {labels_str}\n\n"
+        #     f"User response: \"{text}\"\n\n"
+        # )
+        # if is_post_clarification:
+        #     classification_prompt += (
+        #         "Note: this is a response AFTER the user received an explanation. "
+        #         "If the user simply acknowledges (e.g., 'ok', 'yes'), classify as 'acknowledge'.\n\n"
+        #     )
+        # classification_prompt += f"Return ONLY the label name ({labels_str})."
+
         classification_prompt = (
-            f"Classify the user's response into ONE of these categories: {labels_str}\n\n"
-            f"User response: \"{text}\"\n\n"
+            "You are classifying a user reply to a proposed task resolution procedure.\n"
+            "\n"
+            "Labels:\n"
+            "- accept → user agrees\n"
+            "- modify → user wants changes (even if phrased as a question)\n"
+            "- clarify → user asks for explanation, not change\n"
+            "- reject → user says it's wrong\n"
+            "- abort → user cancels\n"
+            "\n"
         )
         if is_post_clarification:
             classification_prompt += (
                 "Note: this is a response AFTER the user received an explanation. "
-                "If the user simply acknowledges (e.g., 'ok', 'yes'), classify as 'acknowledge'.\n\n"
+                "If the user simply acknowledges (e.g., 'ok', 'yes'), classify as 'acknowledge'.\n"
+                "\n"
             )
-        classification_prompt += f"Return ONLY the label name ({labels_str})."
+        classification_prompt += (
+            "IMPORTANT:\n"
+            "If the user suggests ANY change, EVEN AS A QUESTION → classify as \"modify\".\n"
+            "\n"
+            f"User response: \"{text}\"\n"
+            "\n"
+            "Return ONLY the label.\n"
+        )
 
         messages = [
             SystemMessage(content="You are a precise intent classifier. Return only the label name, nothing else."),

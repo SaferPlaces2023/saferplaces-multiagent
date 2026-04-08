@@ -49,8 +49,10 @@ class MapAgentPrompts:
                     "- If the goal involves multiple map operations, use the appropriate tool for each one.\n"
                     "- Always use the exact layer_id as found in the layer registry.\n"
                     "- If a layer_id is not found in the registry, report an error — do NOT invent IDs.\n"
-                    "- For shape operations: use register_shape for existing drawn shapes, "
-                    "create_shape to generate new geometries from a description.\n"
+                    "- For shape operations: use register_shape ONLY for shapes already present in "
+                    "user_drawn_shapes (i.e. manually drawn by the user). Use create_shape to generate "
+                    "new geometries from a description — it handles registration automatically, so "
+                    "do NOT call register_shape after create_shape.\n"
                 )
             }
             return Prompt(p)
