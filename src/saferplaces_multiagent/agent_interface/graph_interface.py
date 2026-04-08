@@ -334,18 +334,21 @@ class GraphInterface:
                 print(f"NEW PROMPT: {prompt}")
                 self.update_events(HumanMessage(content=prompt))
                 stream_obj = {
+                    'nowtime': datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat(),
+                    'user_id': self.user_id,
+                    'project_id': self.project_id,
                     'messages': [
                         * prepare_system_messages(),
                         HumanMessage(content=prompt)
                     ],
-                    'user_id': self.user_id,
-                    'project_id': self.project_id,
-                    'node_params': state_updates.get('node_params', dict()),
-                    'node_history': state_updates.get('node_history', []),
                     'layer_registry': state_updates.get('layer_registry', []),
-                    'user_drawn_shapes': state_updates.get('user_drawn_shapes', []),
                     'avaliable_tools': state_updates.get('avaliable_tools', self.get_state('avaliable_tools', [])),
-                    'nowtime': datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None).isoformat(),
+                    'node_params': state_updates.get('node_params', dict()),
+                    'node_history': state_updates.get('node_history', []),    
+                    'user_drawn_shapes': state_updates.get('user_drawn_shapes', []),
+                    
+                    ** ({'map_viewport': state_updates.get('map_viewport')} or dict()),
+                    ** ({'map_zoom': state_updates.get('map_zoom')} or dict())
                 }
             return stream_obj
         

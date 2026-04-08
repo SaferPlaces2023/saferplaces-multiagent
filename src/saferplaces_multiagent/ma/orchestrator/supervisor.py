@@ -192,7 +192,7 @@ class SupervisorPlannerConfirm(MultiAgentNode):
     def _unnecessary_confirmation(state: MABaseGraphState) -> bool:
         
         plan = state.get('plan')
-        current_step = state.get('current_step')
+        current_step = state.get('current_step') or 0
 
         ignore_agents = [NodeNames.LAYERS_AGENT, NodeNames.MAP_AGENT]
 
@@ -372,7 +372,7 @@ class SupervisorRouter(MultiAgentNode):
             state["plan"] = None
             state["current_step"] = None
             state["plan_confirmation"] = None
-            state["invocation_reason"] = None
+            state["supervisor_invocation_reason"] = None
             state['supervisor_next_node'] = NodeNames.FINAL_RESPONDER
             return state
 

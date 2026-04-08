@@ -609,7 +609,7 @@ def get_conversation_context(state, n: int = 5) -> str:
 
 _base_llm = ChatOpenAI(
     model="gpt-4o-mini",
-    max_completion_tokens=500,
+    max_completion_tokens=3000,
     temperature=0
 )
 

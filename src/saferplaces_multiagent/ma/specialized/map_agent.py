@@ -11,7 +11,9 @@ from ...common.states import MABaseGraphState
 from ...common.utils import _base_llm
 from ..names import NodeNames
 from ..prompts.map_agent_prompts import MapAgentInstructions
+from .tools.create_shape_tool import CreateShapeTool
 from .tools.layer_symbology_tool import LayerSymbologyTool
+from .tools.move_map_view_tool import MoveMapViewTool
 from .tools.register_shape_tool import RegisterShapeTool
 
 
@@ -31,7 +33,9 @@ class MapAgent(MultiAgentNode):
         super().__init__(name, log_state)
         self._tools: List[BaseTool] = [
             LayerSymbologyTool(),
-            RegisterShapeTool()
+            RegisterShapeTool(),
+            CreateShapeTool(),
+            MoveMapViewTool(),
         ]
         self.llm = _base_llm.bind_tools(self._tools)
 

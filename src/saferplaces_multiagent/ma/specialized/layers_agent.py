@@ -196,6 +196,7 @@ class Prompts:
             f"- Metadata: {metadata if metadata else 'NOT PROVIDED'}\n"
             f"\n"
             f"For any field marked \"NOT PROVIDED\", infer an appropriate value based on the source URI and user request.\n"
+            f"If metadata are present, keep them as is without any modification.\n"
             f"Respond in JSON format with all fields filled in:\n"
             f"{{\n"
             f"  \"title\": \"...\",\n"
@@ -314,14 +315,14 @@ class BuildLayerFromPromptTool(BaseTool):
 
         try:
             # Use structured output to get a LayerOutput object
-            llm_with_output = _base_llm.with_structured_output(LayerOutput)
+            llm_with_output = _base_llm.with_structured_output(LayerOutput, method="function_calling")
             layer_output = llm_with_output.invoke([HumanMessage(content=inference_prompt)])
             
             # Use provided values, fall back to inferred values from structured output
             final_title = title or layer_output.title
             final_type = type or layer_output.type
             final_description = description or layer_output.description
-            final_metadata = metadata or layer_output.metadata
+            final_metadata = {**(layer_output.metadata or {}), **(metadata or {})}
             
             # Validate type (should already be validated by Pydantic, but just in case)
             if final_type not in ("raster", "vector"):
@@ -435,6 +436,13 @@ class LayersAgent(MultiAgentNode):
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         print(f"[{self.name}] → Invoking tools for layers operation...")
 
+        # DOC: If layers_request is not set, fall back to the current plan step goal
+        if not state.get("layers_request"):
+            plan = state.get("plan") or []
+            current_step = state.get("current_step") or 0
+            if current_step < len(plan):
+                state["layers_request"] = plan[current_step].get("goal", "")
+
         invocation_messages = LayersInstructions.InvokeTools.Invocation.InvokeOneShot.stable(state)
         invocation = self.llm.invoke(invocation_messages)
 
@@ -498,6 +506,8 @@ class LayersExecutor(MultiAgentNode):
                 tool_call_id=tool_call["id"],
                 name=tool_name,
             ))
+
+            print(f"[{self.name}] → {result}")
 
             if step_error:
                 break

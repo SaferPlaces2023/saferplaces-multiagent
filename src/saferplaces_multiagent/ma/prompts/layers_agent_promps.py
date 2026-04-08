@@ -2,6 +2,7 @@ from langchain_core.messages import SystemMessage
 
 from . import Prompt
 from ...common.states import MABaseGraphState
+from ...common.context_builder import ContextBuilder
 
 
 
@@ -160,12 +161,24 @@ class LayersInstructions:
                     layer_ctx = LayersInstructions.InvokeTools.Prompts._LayerContext.stable(state)
                     request = LayersInstructions.InvokeTools.Prompts._Request.stable(state)
 
+                    conversation = ContextBuilder.conversation_history(state, max_messages=5)
+
+                    plan = state.get("plan") or []
+                    current_step = state.get("current_step") or 0
+                    goal = plan[current_step]["goal"] if current_step < len(plan) else ""
+
                     message = (
                         f"{role.header}\n"
                         f"{role.message}\n"
                         "\n"
                         f"{layer_ctx.header}\n"
                         f"{layer_ctx.message}\n"
+                        "\n"
+                        "[CONVERSATION HISTORY]\n"
+                        f"{conversation}\n"
+                        "\n"
+                        "[GOAL]\n"
+                        f"{goal}\n"
                         "\n"
                         f"{request.header}\n"
                         f"{request.message}\n"

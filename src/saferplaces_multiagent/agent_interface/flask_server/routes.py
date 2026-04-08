@@ -138,10 +138,15 @@ def prompt(thread_id):
     prompt = escape(data['prompt'])
     
     stream_mode = data.get('stream', False)
+
+    state_updates = {
+        'available_tools': [],
+        **data.get('state_updates', dict())
+    }
     
     if stream_mode:
         def generate():
-            for e in gi.user_prompt(prompt=prompt, state_updates={'avaliable_tools': []}):
+            for e in gi.user_prompt(prompt=prompt, state_updates=state_updates):
                 yield json.dumps(gi.conversation_handler.chat2json(chat=e)) + "\n"
             yield json.dumps(dict(stop=True)) + "\n"
         
@@ -158,7 +163,7 @@ def prompt(thread_id):
     else:
         gen = (
             gi.conversation_handler.chat2json(chat=e)
-            for e in gi.user_prompt(prompt=prompt, state_updates={'avaliable_tools': []})
+            for e in gi.user_prompt(prompt=prompt, state_updates=state_updates)
         )
     
         return jsonify(list(gen)), 200
@@ -269,19 +274,21 @@ def cesium_load_wds():
     gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
     if not gi:
         return jsonify({"error": "GraphInterface not found"}), 404
-    
-    layer_registry = gi.get_state('layer_registry', [])
 
-    is_wd_layer = lambda layer_data: layer_data.get('metadata', dict()).get('surface_type') == 'water-depth'
-    wd_layers = [l for l in layer_registry if is_wd_layer(l)]
-    
-    if len(wd_layers) == 0:
-        return jsonify({"skipping": "No water-depth layers found"}), 200
-    
-    wd3d_uri = gi.cesium_handler.preprocess_wd(wd_layers[0]['src'])
+    # If a specific layer src is provided (e.g. from "3D View" action), use it directly
+    src = data.get('src')
+    if not src:
+        layer_registry = gi.get_state('layer_registry', [])
+        is_wd_layer = lambda layer_data: layer_data.get('metadata', dict()).get('surface_type') == 'water-depth'
+        wd_layers = [l for l in layer_registry if is_wd_layer(l)]
+        if len(wd_layers) == 0:
+            return jsonify({"skipping": "No water-depth layers found"}), 200
+        src = wd_layers[0]['src']
+
+    wd3d_uri = gi.cesium_handler.preprocess_wd(src)
     if not wd3d_uri:
         return jsonify({"error": "Failed to preprocess water-depth layer"}), 500
-    
+
     wd3d_url = utils.s3uri_to_https(wd3d_uri)
 
     return jsonify({"wd3d_url": wd3d_url}), 200

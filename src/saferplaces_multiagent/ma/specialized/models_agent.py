@@ -202,7 +202,7 @@ class ModelsAgent(MultiAgentNode):
         """Main models execution logic."""
 
         # DOC: Switch case (from which situation i'm coming)
-        invocation_reason = state.get("models_invocation_reason", "new_invocation")
+        invocation_reason = state.get("models_invocation_reason") or "new_invocation"
         state['models_invocation_reason'] = None
 
         print(f"[{self.name}] → Invocation reason: {invocation_reason}")
@@ -343,6 +343,11 @@ class ModelsInvocationConfirm(MultiAgentNode):
 
     def run(self, state: MABaseGraphState) -> MABaseGraphState:
         """Main confirmation workflow."""
+
+        # DOC: handle re-invocation loop 
+        MAX_REINVOCATION = 3
+        if (state.get("models_reinvocation_count") or 0) >= MAX_REINVOCATION:
+            return self._handle_abort(state)
 
         # DOC: Get current invocation
         invocation = state.get('models_invocation')
@@ -498,7 +503,7 @@ class ModelsExecutor(MultiAgentNode):
             return state
         
         # DOC: get current step — mandatory valued if invocation exists
-        invocation_current_step = state['models_current_step']
+        invocation_current_step = state.get('models_current_step') or 0
 
         tool_responses = [] 
         step_error = False
@@ -532,12 +537,12 @@ class ModelsExecutor(MultiAgentNode):
                 state=state
             )
             
-            state['models_current_step'] = state['models_current_step'] + 1
+            state['models_current_step'] = (state.get("models_current_step") or 0) + 1
 
         if step_error:
             # Keep tool_calls up to and including the failing step so the
             # invocation remains visible in the conversation history.
-            solved_tool_calls = invocation.tool_calls[:state['models_current_step'] + 1]
+            solved_tool_calls = invocation.tool_calls[:state.get("models_current_step", 0) + 1]
             invocation = AIMessage(content=invocation.content, tool_calls=solved_tool_calls)
             state['supervisor_invocation_reason'] = "step_error"
         else:

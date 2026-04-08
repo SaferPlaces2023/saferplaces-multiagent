@@ -11,6 +11,7 @@ from ...common.context_builder import ContextBuilder
 
 from . import Prompt
 from .layers_agent_promps import LayersAgentPrompts
+from .map_agent_prompts import MapAgentPrompts
 from .request_parser_prompts import RequestParserInstructions
 
 
@@ -44,6 +45,10 @@ class FinalResponderInstructions:
                     parsed_request_context = RequestParserInstructions.Prompts._ParsedRequest.stable(state)
                     layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
                     shapes_context = LayersAgentPrompts.BasicShapesSummary.stable(state)
+                    map_context = Prompt(dict(
+                        header="[MAP CONTEXT]",
+                        message=MapAgentPrompts._viewport_context(state)
+                    ))
                     conversation_context = Prompt(dict(
                         header="[CONVERSATION HISTORY]",
                         message=ContextBuilder.conversation_history(state, max_messages=10)
@@ -60,6 +65,9 @@ class FinalResponderInstructions:
                         "\n"
                         f"{shapes_context.header}\n"
                         f"{shapes_context.message}\n"
+                        "\n"
+                        f"{map_context.header}\n"
+                        f"{map_context.message}\n"
                         "\n"
                         f"{conversation_context.header}\n"
                         f"{conversation_context.message}\n"

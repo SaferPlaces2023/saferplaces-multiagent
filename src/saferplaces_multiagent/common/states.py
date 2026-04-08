@@ -7,13 +7,14 @@ import datetime
 from textwrap import indent
 
 from typing_extensions import Annotated, Literal, TypedDict
-from typing import Literal, Sequence, TypedDict, List, Optional, Dict, Any, Union
+from typing import Literal, Sequence, TypedDict, List, Optional, Dict, Any, Union, Tuple
 
 
 from langchain_core.messages import SystemMessage, AnyMessage, AIMessage, ToolMessage
 from langgraph.graph import add_messages, MessagesState
 from langchain_core.messages import BaseMessage
 
+import operator
 from typing import Optional, Union, List, Dict, Any, Literal
 from pydantic import BaseModel, Field
 
@@ -25,6 +26,51 @@ from .base_models import AdditionalContext, ConfirmationState, PlanConfirmationS
 
 
 # DOC: This is a basic state that will be used by all nodes in the graph. It ha one key: "messages" : list[AnyMessage]
+
+class GeoOpsAgentState(dict):
+    """
+    [REAL CODE] Stato condiviso tra tutti i nodi del grafo.
+
+    LangGraph aggiorna lo stato con merge: ogni nodo restituisce un dict
+    con solo le chiavi che ha modificato. Le chiavi con Annotated[list, operator.add]
+    si accumulano automaticamente (append-only), le altre si sovrascrivono.
+
+    Nota: in LangGraph moderno puoi usare TypedDict o Pydantic — scegli
+    in base a cosa già usi nel tuo progetto.
+    """
+
+    # ── Input iniziali (immutabili dopo il nodo START) ────────────────────────
+    task: str                           # richiesta riscritta dall'agente principale
+    layers: list[dict]                  # subset del layer registry già filtrato
+    output_hint: str                    # "info" | "layer" | "both" | "auto"
+
+    # ── Piano ─────────────────────────────────────────────────────────────────
+    plan_steps: list[dict]              # lista di step pianificati (dict serializzabili)
+    output_format: str                  # "info" | "layer" | "both"
+    declared_uncertainties: list[str]
+
+    # ── Context accumulato (equivalente al ContextAccumulator del file precedente) ──
+    layer_schemas: dict[str, Any]
+    sampled_values: dict[str, Any]
+    spatial_relations: dict[str, bool]
+    scalar_results: dict[str, Any]
+    derived_layer_refs: dict[str, str]
+    inspect_findings: dict[str, Any]
+
+    # ── Log append-only (operator.add = ogni nodo appende, non sovrascrive) ───
+    code_history: Annotated[list[dict], operator.add]
+    error_log: Annotated[list[dict], operator.add]
+
+    # ── Controllo del flusso ──────────────────────────────────────────────────
+    current_step_ids: list[int]         # step da eseguire nell'iterazione corrente
+    completed_step_ids: list[int]       # step già completati (inspect + code)
+    iteration_count: int                # numero di cicli fatti (per max_iterations)
+    reflect_decision: str               # "complete" | "replan" | "continue"
+    reflect_reason: str                 # motivazione della decisione di Reflect
+
+    # ── Output finale ─────────────────────────────────────────────────────────
+    result: dict | None                 # GeoToolResult serializzato
+
 
 
 class MABaseGraphState(TypedDict):
@@ -43,11 +89,6 @@ class MABaseGraphState(TypedDict):
     user_drawn_shapes: Annotated[Sequence[dict], merge_user_drawn_shapes] = []
     avaliable_tools: list[str] | None = []
 
-    # DOC: map state (PLN-014)
-    map_view: Optional[dict]  # serialized from MapView.model_dump() — dict, not MapView instance
-    map_commands: Annotated[List[dict], merge_map_commands]
-    shapes_registry: Annotated[Sequence[dict], merge_shape_registry]
-
     # DOC: multi-agent metadata
     parsed_request: Dict[str, Any]
     supervisor_next_node: str
@@ -65,16 +106,20 @@ class MABaseGraphState(TypedDict):
 
     # DOC: specialized retriever agent state
     retriever_invocation: AIMessage
+    retriever_invocation_reason: Optional[str]
     retriever_invocation_errors: Optional[List[dict]]
     retriever_invocation_confirmation: ConfirmationState
     retriever_reinvocation_request: AnyMessage
+    retriever_reinvocation_count: Optional[int]
     retriever_current_step: Optional[int]
 
     # DOC: specialized models agent state
     models_invocation: AIMessage
+    models_invocation_reason: Optional[str]
     models_invocation_errors: Optional[List[dict]]
     models_invocation_confirmation: ConfirmationState
     models_reinvocation_request: AnyMessage
+    models_reinvocation_count: Optional[int]
     models_current_step: Optional[int]
 
     # DOC: on-demand layers agent state
@@ -83,11 +128,15 @@ class MABaseGraphState(TypedDict):
     layers_response: List[Any]
 
     # DOC: on-demand map agent state (PLN-014)
+    shapes_registry: Annotated[Sequence[dict], merge_shape_registry]
+    map_commands: Annotated[List[dict], merge_map_commands]
     map_request: Optional[str]
     map_invocation: AIMessage
-    map_invocation_confirmation: ConfirmationState  # reserved — subgraph pattern not yet implemented
-    map_reinvocation_request: AnyMessage  # reserved — subgraph pattern not yet implemented
-    map_current_step: Optional[int]
+    map_viewport: Optional[Tuple[float, float, float, float]]
+    map_zoom: Optional[float]
+
+    # DOC: geospatial ops agente state
+    geo_ops_agent_state: GeoOpsAgentState
 
 
 # ============================================================================
@@ -127,6 +176,7 @@ class StateManager:
         # Clear specialized agent state
         StateManager._clear_specialized_agent_state(state, 'retriever')
         StateManager._clear_specialized_agent_state(state, 'models')
+        # StateManager._clear_specialized_agent_state(state, 'geo_ops')
         
         # Clear layers agent temporary state
         state['layers_request'] = None
@@ -211,7 +261,7 @@ class StateManager:
         state['layers_invocation'] = None
         state['layers_response'] = []
 
-        # Clear map agent temporary state; map_view and drawn_shapes_registry are persistent (PLN-014)
+        # Clear map agent temporary state; map_viewport and drawn_shapes_registry are persistent (PLN-014)
         state['map_request'] = None
         state['map_commands'] = []
         StateManager._clear_specialized_agent_state(state, 'map')
@@ -222,9 +272,11 @@ class StateManager:
         """Clear all state for a specialized agent."""
         prefix = agent_type
         state[f'{prefix}_invocation'] = None
+        state[f'{prefix}_invocation_reason'] = None
         state[f'{prefix}_current_step'] = 0
         state[f'{prefix}_invocation_confirmation'] = None
         state[f'{prefix}_reinvocation_request'] = None
+        state[f'{prefix}_reinvocation_count'] = 0
 
     @staticmethod
     def is_plan_complete(state: MABaseGraphState) -> bool:

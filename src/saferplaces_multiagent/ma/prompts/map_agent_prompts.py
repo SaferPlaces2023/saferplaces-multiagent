@@ -33,19 +33,28 @@ class MapAgentPrompts:
                     "   - Registers a shape (polygon, point, line) that the user has drawn on the map.\n"
                     "   - Use this when new shapes appear in user_drawn_shapes and need to be added to the shapes_registry.\n"
                     "\n"
+                    "3. **Create a new shape from a description** (create_shape tool):\n"
+                    "   - Generates a new GeoJSON geometry from a natural language user request.\n"
+                    "   - Use this when the user asks to create, draw, or place a shape that does not yet exist.\n"
+                    "   - Pass the user's original description as user_request.\n"
+                    "\n"
+                    "4. **Move or zoom the map** (move_map_view tool):\n"
+                    "   - Moves or zooms the map viewport to a location described in natural language.\n"
+                    "   - Use this when the user wants to navigate to a place, fit a region, or change zoom level.\n"
+                    "   - Pass the user's original request as user_request.\n"
+                    "\n"
                     "## Rules\n"
                     "- Use ONLY the tools listed above.\n"
                     "- Do NOT attempt simulations, data retrieval, or analysis — those belong to other agents.\n"
                     "- If the goal involves multiple map operations, use the appropriate tool for each one.\n"
                     "- Always use the exact layer_id as found in the layer registry.\n"
                     "- If a layer_id is not found in the registry, report an error — do NOT invent IDs.\n"
-                    "- For shape operations, always prefer register_shape for existing drawn shapes, "
-                    "choose_shape to select among registered shapes, and create_shape to generate new geometries.\n"
+                    "- For shape operations: use register_shape for existing drawn shapes, "
+                    "create_shape to generate new geometries from a description.\n"
                 )
             }
             return Prompt(p)
 
-      
     class GenerateMaplibreStylePrompt:
 
         @staticmethod
@@ -198,7 +207,7 @@ class MapAgentPrompts:
 
         Responsibilities (separate from ContextPrompt):
           ContextPrompt    → SystemMessage — static agent role and tool capabilities
-          ExecutionContext → HumanMessage  — dynamic snapshot of map_view / layers / shapes
+          ExecutionContext → HumanMessage  — dynamic snapshot of map_viewport / shapes
         """
 
         @staticmethod
@@ -217,11 +226,12 @@ class MapAgentPrompts:
             """
             parts: list[str] = []
 
-            map_view = state.get("map_view")
-            if map_view:
+            map_viewport = state.get("map_viewport")
+            map_zoom = state.get("map_zoom")
+            if map_viewport:
                 parts.append(
-                    f"Current map view: center=({map_view.get('center_lat', '?'):.4f}, "
-                    f"{map_view.get('center_lon', '?'):.4f}), zoom={map_view.get('zoom', '?')}"
+                    f"Current map view: bounds={{minx={map_viewport[0]}, miny={map_viewport[1]}, "
+                    f"maxx={map_viewport[2]}, maxy={map_viewport[3]}}}, zoom={map_zoom}"
                 )
             else:
                 parts.append("Current map view: unknown")
@@ -270,15 +280,112 @@ class MapAgentPrompts:
 
             return Prompt({
                 "title": "MapAgentExecutionContext",
-                "description": "Runtime snapshot of map_view, layers and shapes for the MapAgent HumanMessage",
+                "description": "Runtime snapshot of map_viewport, layers and shapes for the MapAgent HumanMessage",
                 "command": "",
                 "message": "\n".join(parts),
             })
 
 
+    class GenerateShapePrompt:
+
+        @staticmethod
+        def stable() -> Prompt:
+            return Prompt({
+                "title": "ShapeGenerator",
+                "description": "LLM prompt to generate a GeoJSON geometry from a natural language request",
+                "command": "",
+                "message": (
+                    "You are a GeoJSON geometry expert. Your only task is to produce a valid GeoJSON "
+                    "geometry object that satisfies a user's spatial request.\n"
+                    "\n"
+                    "## Input you receive\n"
+                    "\n"
+                    "- Current map view: bounding box [west, south, east, north] and zoom level "
+                    "(use this as spatial context when the user does not specify exact coordinates)\n"
+                    "- User request: a natural language description of what shape to create\n"
+                    "\n"
+                    "## Expected output\n"
+                    "\n"
+                    "Reply ONLY with a GeoJSON geometry object (no markdown, no explanations):\n"
+                    "{\n"
+                    '  "type": "Polygon" | "MultiPolygon" | "LineString" | "MultiLineString" | "Point",\n'
+                    '  "coordinates": [ ... ]\n'
+                    "}\n"
+                    "\n"
+                    "## Guidelines\n"
+                    "\n"
+                    "1. Use EPSG:4326 (WGS84) coordinates [longitude, latitude].\n"
+                    "2. If the user names a well-known place (city, landmark, river, etc.), use your "
+                    "geographic knowledge to generate plausible coordinates.\n"
+                    "3. If the user provides no specific location and the map viewport is available, "
+                    "generate a shape centered within the visible bounding box.\n"
+                    "4. Choose the geometry type that best matches the request:\n"
+                    "   - Area / region / bbox → Polygon\n"
+                    "   - Path / route / river / road → LineString\n"
+                    "   - Single location / marker → Point\n"
+                    "5. Polygons must be closed (first and last coordinate identical).\n"
+                    "6. Keep coordinate precision to 5 decimal places.\n"
+                    "\n"
+                    "Reply ONLY with the GeoJSON geometry object. Nothing else."
+                ),
+            })
+
+    class GenerateMoveViewPrompt:
+
+        @staticmethod
+        def stable() -> Prompt:
+            return Prompt({
+                "title": "MoveViewGenerator",
+                "description": "LLM prompt to generate a map viewport payload from a natural language request",
+                "command": "",
+                "message": (
+                    "You are a geographic assistant. Your only task is to produce a JSON viewport"
+                    " object that describes where to move a web map based on a user request.\n"
+                    "\n"
+                    "## Input you receive\n"
+                    "\n"
+                    "- Current map view: bounds [west, south, east, north] and zoom level\n"
+                    "- User request: natural language description of the desired location/view\n"
+                    "\n"
+                    "## Expected output\n"
+                    "\n"
+                    "Reply ONLY with a JSON object (no markdown, no explanations) in ONE of these two forms:\n"
+                    "\n"
+                    "1. Point + zoom:\n"
+                    '{\n'
+                    '  "center": [longitude, latitude],\n'
+                    '  "zoom": <number 1-18>\n'
+                    '}\n'
+                    "\n"
+                    "2. Bounding box (use when the user names a region, country, or river basin):\n"
+                    '{\n'
+                    '  "bbox": { "west": <lon>, "south": <lat>, "east": <lon>, "north": <lat> }\n'
+                    '}\n'
+                    "\n"
+                    "## Guidelines\n"
+                    "\n"
+                    "- Use EPSG:4326 (WGS84) coordinates: longitude first, then latitude.\n"
+                    "- Use your geographic knowledge to produce accurate coordinates for named places.\n"
+                    "- Prefer bbox for countries, regions, and river basins; prefer center+zoom for cities and landmarks.\n"
+                    "- For zoom, use: 4-5 continent, 6-7 country, 8-9 region, 10-11 city, 12-13 district, 14-16 street.\n"
+                    "- Keep coordinate precision to 4 decimal places.\n"
+                    "\n"
+                    "Reply ONLY with the JSON object. Nothing else."
+                ),
+            })
+
+    def _viewport_context(state: MABaseGraphState) -> str:
+        if state.get("map_viewport") is None:
+            return "No map viewport available."
+        viewport = state["map_viewport"]
+        zoom = state.get("map_zoom", "unknown")
+        return f"Current map view: bounds={{minx={viewport[0]}, miny={viewport[1]}, maxx={viewport[2]}, maxy={viewport[3]}}}, zoom={zoom}"
+
 # ---------------------------------------------------------------------------
 # Module-level helpers (used by ExecutionContext.stable)
 # ---------------------------------------------------------------------------
+
+
 
 def _format_layer_registry_summary(layer_registry: list) -> str:
     """Return a concise bullet-list summary of the layer registry."""

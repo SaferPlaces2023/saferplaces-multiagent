@@ -38,7 +38,7 @@ class SupervisorInstructions:
                         "Your role is to decompose a user request into an ordered list of atomic steps, each assigned to exactly one specialized agent.\n"
                         "\n"
                         "AVAILABLE AGENTS:\n"
-                        "- retriever_agent: retrieves observational rainfall data (DPC radar) and weather forecasts (Meteoblue). Use BEFORE models_agent when simulation input data is not yet available.\n"
+                        "- retriever_agent: retrieves observational rainfall data (DPC radar) and weather forecasts (Meteoblue).\n"
                         "- models_agent: creates digital twin base layers (DEM, buildings, land use) or runs flood/fire simulations (SaferRain, SaferFire). Requires input layers to already exist.\n"
                         "- map_agent: support agent for map frontend interactions — moves the viewport, generates layer symbology styles (MapLibre GL JS), "
                         "and registers shapes drawn by the user. Does NOT run simulations, retrieve data, or modify the layer registry.\n"

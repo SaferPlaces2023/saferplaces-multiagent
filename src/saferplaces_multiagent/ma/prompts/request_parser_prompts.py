@@ -6,6 +6,7 @@ from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 
 from . import Prompt
 from .layers_agent_promps import LayersAgentPrompts
+from .map_agent_prompts import MapAgentPrompts
 from ...common.states import MABaseGraphState
 from ...common.context_builder import ContextBuilder
 
@@ -36,7 +37,10 @@ class RequestParserInstructions:
                 layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
                 shapes_context = LayersAgentPrompts.BasicShapesSummary.stable(state)
 
-                # map_context = MapAgentPrompts.MapContext
+                map_context = Prompt(dict(
+                    header = "[MAP CONTEXT]",
+                    message = MapAgentPrompts._viewport_context(state)
+                ))
 
                 conversation_context = Prompt(dict(
                     header = "[CONVERSATION HISTORY]",
@@ -53,6 +57,9 @@ class RequestParserInstructions:
                     "\n"
                     f"{shapes_context.header}\n"
                     f"{shapes_context.message}\n"
+                    "\n"
+                    f"{map_context.header}\n"
+                    f"{map_context.message}\n"
                     "\n"
                     f"{conversation_context.header}\n"
                     f"{conversation_context.message}\n"

@@ -62,16 +62,28 @@ def build_specialized_retriever_subgraph():
     retriever_builder.add_node(retriever_executor.name, retriever_executor)
 
     retriever_builder.add_edge(START, retriever_agent.name)
+    
     retriever_builder.add_edge(retriever_agent.name, retriever_invocation_confirm.name)
-    # retriever_builder.add_edge(retriever_invocation_confirm.name, retriever_executor.name)
+    
     retriever_builder.add_conditional_edges(
         retriever_invocation_confirm.name,
-        lambda state: state.get('retriever_invocation_confirmation') == 'rejected',
+        lambda state: state.get('retriever_invocation_confirmation') if state.get('retriever_invocation') else END,
         {
-            True: retriever_agent.name,
-            False: retriever_executor.name,
+            'accepted': retriever_executor.name,
+            'modify': retriever_agent.name,
+            'aborted': retriever_executor.name,
+            END: END
         }
     )
+
+    # retriever_builder.add_conditional_edges(
+    #     retriever_invocation_confirm.name,
+    #     lambda state: state.get('retriever_invocation_confirmation') == 'rejected',
+    #     {
+    #         True: retriever_agent.name,
+    #         False: retriever_executor.name,
+    #     }
+    # )
     
     return retriever_builder.compile()
 

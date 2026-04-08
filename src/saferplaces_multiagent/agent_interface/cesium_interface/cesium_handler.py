@@ -14,6 +14,8 @@ class CesiumHandler:
         self.wd_preprocessor = WD3dMeshPreprocessor(verbose=True)
 
     def preprocess_wd(self, wd_tif_uri, wd_cbor_uri = None, force=False):
+        if wd_tif_uri.startswith('https://s3'):
+            wd_tif_uri = utils.s3https_to_s3uri(wd_tif_uri)
         wd_cbor_uri = wd_tif_uri.rsplit('/', 1)[0] + '/' + os.path.basename(wd_tif_uri).replace('.tif', '.cbor') if wd_cbor_uri is None else wd_cbor_uri
         if s3_utils.s3_exists(wd_cbor_uri) and not force:
             print(f"WD CBOR file already exists: {wd_cbor_uri}")
