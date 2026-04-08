@@ -318,8 +318,22 @@ def merge_CoT(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
     return utils.merge_dict_sequences(left, right, unique_key='id_', method='overwrite')
 
 def merge_map_commands(left: List[dict], right: List[dict]) -> List[dict]:
-    """Concatenate map commands — accumulates all commands produced in a cycle."""
-    return list(left or []) + list(right or [])
+    """Concatenate map commands, deduplicating sync_shapes by shape_id (last wins)."""
+    combined = list(left or []) + list(right or [])
+    result: List[dict] = []
+    seen_sync_shape_idx: dict[str, int] = {}  # shape_id → position in result
+    for cmd in combined:
+        if cmd.get('type') == 'sync_shapes':
+            shape_id = (cmd.get('payload') or {}).get('shape_id')
+            if shape_id and shape_id in seen_sync_shape_idx:
+                result[seen_sync_shape_idx[shape_id]] = cmd  # overwrite with latest
+            else:
+                if shape_id:
+                    seen_sync_shape_idx[shape_id] = len(result)
+                result.append(cmd)
+        else:
+            result.append(cmd)
+    return result
 
 def merge_shape_registry(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
     return utils.merge_dict_sequences(left, right, unique_key='shape_id', method='overwrite')
