@@ -24,7 +24,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 class ContextBuilder:
 
     @staticmethod
-    def conversation_history(state: MABaseGraphState, max_messages: int = 10) -> str:
+    def conversation_history(state: MABaseGraphState, max_messages: int = 5) -> str:
         """
         Build a readable conversation history for LLM context.
 

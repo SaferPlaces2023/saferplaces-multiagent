@@ -199,9 +199,12 @@ def render_layer(thread_id):
     if not layer_data:
         return jsonify({"error": "Layer data is required"}), 400
 
+    gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
+    if not gi:
+        return jsonify({"error": "GraphInterface not found"}), 404
+
     to_be_registered = layer_data.get('register', False)
     if to_be_registered:
-        gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
         if not gi:
             return jsonify({"error": "GraphInterface not found"}), 404
         gi.register_layer(
@@ -220,15 +223,30 @@ def render_layer(thread_id):
     if not layer_type:
         return jsonify({"error": "Layer type is required"}), 400
     
+    og_metadata = layer_data.get('metadata', dict())
+    
     if layer_type == 'vector':
         layer_render_src = utils.vector_to_geojson4326(layer_src)
         metadata = utils.vector_specs(layer_render_src)
     elif layer_type == 'raster':
         layer_render_src = utils.tif_to_cog3857(layer_src)
-        metadata = utils.raster_specs(layer_render_src)
-            
+        is_timeseries = 'timeseries' in og_metadata.get('surface_type', '')
+        if is_timeseries:
+            metadata = utils.raster_ts_specs(layer_render_src)
+        else:
+            metadata = utils.raster_specs(layer_render_src)
     else:
         return jsonify({"error": f"Layer type '{layer_type}' is not supported"}), 400
+        
+    if any(m not in og_metadata for m in metadata):
+        metadata = { **og_metadata, **metadata }
+        gi.register_layer(
+            src = layer_data['src'],
+            title = layer_data.get('title', None),
+            description = layer_data.get('description', None),
+            layer_type = layer_data.get('type', None),
+            metadata = metadata,
+        )
         
     return jsonify({'src': utils.s3uri_to_https(layer_render_src), 'metadata': metadata}), 200
 
@@ -240,10 +258,7 @@ CESIUM_DIST = f"{app.static_folder}/ext/safer-3d-cesium/demo/dist"
 
 @app.route("/cesium-viewer", methods=["POST"])
 def cesium_index():
-    user_id = request.form.get("user_id")
-    project_id = request.form.get("project_id")
     thread_id = request.form.get('thread_id')
-    app.static_folder
 
     gi: GraphInterface = app.__GRAPH_REGISTRY__.get(thread_id)
     if not gi:

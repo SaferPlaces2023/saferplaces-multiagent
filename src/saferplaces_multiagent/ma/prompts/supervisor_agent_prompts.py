@@ -34,12 +34,12 @@ class SupervisorInstructions:
                 def stable(state: MABaseGraphState, *args, **kwds) -> Prompt:
 
                     message = (
-                        "You are the orchestrator of a multi-agent AI system for flood risk analysis on the SaferPlaces platform.\n"
+                        "You are the orchestrator of a multi-agent AI system for geospatial analysis and flood risk analysis on the SaferPlaces platform.\n"
                         "Your role is to decompose a user request into an ordered list of atomic steps, each assigned to exactly one specialized agent.\n"
                         "\n"
                         "AVAILABLE AGENTS:\n"
-                        "- retriever_agent: retrieves observational rainfall data (DPC radar) and weather forecasts (Meteoblue).\n"
-                        "- models_agent: creates digital twin base layers (DEM, buildings, land use) or runs flood/fire simulations (SaferRain, SaferFire). Requires input layers to already exist.\n"
+                        "- models_agent: creates and retrieve geospatial layers (20+ kind) related to an area (Digital Twin) such as DEM, buildings, land use or runs flood/fire simulations (SaferRain, SaferFire) in an area thorught some digital twin layers.\n"
+                        "- retriever_agent: retrieves observational weather data (DPC radar) and weather forecasts (Meteoblue) related to an area.\n"
                         "- map_agent: support agent for map frontend interactions — moves the viewport, generates layer symbology styles (MapLibre GL JS), "
                         "and registers shapes drawn by the user. Does NOT run simulations, retrieve data, or modify the layer registry.\n"
                         "  Use map_agent when: the user wants to navigate/zoom the map, change visual appearance of a layer, "
@@ -52,7 +52,8 @@ class SupervisorInstructions:
                         "RULES:\n"
                         "1. Each step references exactly one agent from the list above.\n"
                         "2. Split tasks into atomic steps when a single agent handles multiple independent sub-goals.\n"
-                        "3. Preserve data dependencies: a step that requires output from a previous step must appear after it (e.g., fetch radar data BEFORE running SaferRain).\n"
+                        "3. Preserve data dependencies: a step that requires output from a previous step must appear after it.\n"
+                        # "3.1. SaferRain "
                         "4. If the request requires no agent action (conversational, out-of-scope, or already answered), output an empty plan [].\n"
                         "5. Never fabricate agents or actions outside the platform's documented capabilities.\n"
                         "6. layers_agent is a support step — prefer it only when layer information is genuinely missing from context. Never use it redundantly.\n"
@@ -839,6 +840,14 @@ class SupervisorInstructions:
                         message = message
                     ))
 
+                @staticmethod
+                def json_dump(state: MABaseGraphState) -> Prompt:
+                    plan = state.get('plan') or []
+                    json_plan = json.dumps(plan, indent=2)
+                    return Prompt(dict(
+                        message = json_plan
+                    ))
+
         class LLMConfirmationInterrupt:
             """Parallel to ConfirmationInterrupt — feeds the static plan summary to an LLM
             so the confirmation message is rendered in fluent natural language."""
@@ -849,11 +858,12 @@ class SupervisorInstructions:
 
                     @staticmethod
                     def stable(state: MABaseGraphState) -> list:
-                        static_message = SupervisorInstructions.PlanConfirmation.ConfirmationInterrupt.StaticMessage.stable(state)
+                        # static_message = SupervisorInstructions.PlanConfirmation.ConfirmationInterrupt.StaticMessage.stable(state)
+                        static_message = SupervisorInstructions.PlanConfirmation.ConfirmationInterrupt.StaticMessage.json_dump(state)
 
                         system_prompt = (
                             "You are a conversational assistant presenting an execution plan to the user.\n"
-                            "Rewrite the plan summary below in clear, fluent natural language.\n"
+                            "Rewrite the plan summary below in clear, fluent natural language. Format text as a list with goals of each step.\n"
                             "\n"
                             "Rules:\n"
                             "- Keep all steps and parameters — do not omit or invent anything.\n"

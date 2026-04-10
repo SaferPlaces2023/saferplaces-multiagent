@@ -365,6 +365,7 @@ def raster_ts_specs(src: str, timestamps_attr: str = 'band_names') -> dict:
     base_specs = raster_specs(src)
     da = rxr.open_rasterio(src)
     try:
+        print('---------', da.attrs)
         timestamps = da.attrs[timestamps_attr]
         timestamps = ast.literal_eval(timestamps)
         tstart = datetime.datetime.fromisoformat(timestamps[0]).replace(tzinfo=None)
@@ -374,7 +375,8 @@ def raster_ts_specs(src: str, timestamps_attr: str = 'band_names') -> dict:
             'time_start': tstart.isoformat(),
             'time_end': tend.isoformat()
         }
-    except Exception:
+    except Exception as e:
+        print(f"Error processing raster time series: {e}")
         return base_specs 
 
 
@@ -459,6 +461,12 @@ def tif_to_cog3857(src: str, dst: str = None, debug: bool = False, **kwargs) -> 
     if debug:
         print(f"tif_to_cog: Converting {src} to COG at {dst}")
 
+    band_names = None
+    with rxr.open_rasterio(src) as da:
+        if "band_names" in da.attrs:
+            band_names = da.attrs["band_names"]
+
+
     def to_cog(src, dst, **kwargs):
         """Run the COG conversion."""
         rio_copy(
@@ -534,6 +542,15 @@ def tif_to_cog3857(src: str, dst: str = None, debug: bool = False, **kwargs) -> 
         #     RESAMPLING=kwargs.get("RESAMPLING", "AVERAGE")     # stringa, non enum
         # )
         to_cog(src, dst if not use_tmp_dst else dst_local, **kwargs)
+
+    if band_names is not None:
+        dr = dst_local
+        with rxr.open_rasterio(dr, chunks={}) as da:
+            da.attrs["band_names"] = band_names
+        dr = dr.replace('.tif', '-bn.tif')
+        da.rio.to_raster(dr)
+        dst_local = dr
+
     
     # DOC: if dst is a s3 uri, upload the local file to s3
     print(f"tif_to_cog: Conversion completed, saving to {dst if not use_tmp_dst else dst_local}")
@@ -609,7 +626,7 @@ def get_conversation_context(state, n: int = 5) -> str:
 
 _base_llm = ChatOpenAI(
     model="gpt-4o-mini",
-    max_completion_tokens=3000,
+    max_completion_tokens=1000,
     temperature=0
 )
 

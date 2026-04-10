@@ -17,6 +17,7 @@ from ...common.context_builder import ContextBuilder
 from . import Prompt
 from .layers_agent_promps import LayersAgentPrompts
 from .request_parser_prompts import RequestParserInstructions
+from .map_agent_prompts import MapAgentPrompts
 
 from ...common.utils import get_conversation_context as _get_conversation_context
 
@@ -85,7 +86,10 @@ class ModelsInstructions:
                     layer_context = LayersAgentPrompts.BasicLayerSummary.stable(state)
                     shapes_context = LayersAgentPrompts.BasicShapesSummary.stable(state)
 
-                    # map_context = MapAgentPrompts.MapContext
+                    map_context = Prompt(dict(
+                        header = "[MAP CONTEXT]",
+                        message = MapAgentPrompts._viewport_context(state)
+                    ))
 
                     conversation_context = Prompt(dict(
                         header = "[CONVERSATION HISTORY]",
@@ -110,6 +114,9 @@ class ModelsInstructions:
                         "\n"
                         f"{shapes_context.header}\n"
                         f"{shapes_context.message}\n"
+                        "\n"
+                        f"{map_context.header}\n"
+                        f"{map_context.message}\n"
                         "\n"
                         f"{conversation_context.header}\n"
                         f"{conversation_context.message}\n"

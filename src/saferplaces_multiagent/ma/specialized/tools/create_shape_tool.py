@@ -129,6 +129,7 @@ class CreateShapeTool(BaseTool):
         self.state["shapes_registry"] = registry
 
         cmd = MapCommand(
+            command_session=self.state.get("map_commands_session"),
             type="sync_shapes",
             payload={
                 "shape_id": drawn.shape_id,

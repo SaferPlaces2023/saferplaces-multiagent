@@ -141,6 +141,7 @@ class MapView(BaseModel):
 
 class MapCommand(BaseModel):
     """A command produced by the MapAgent to be consumed by the frontend."""
+    command_session: Optional[str]
     type: str = Field(description="Command type: 'move_view' | 'set_layer_style'")
     payload: Dict[str, Any] = Field(description="Command-specific payload")
     timestamp: str = Field(

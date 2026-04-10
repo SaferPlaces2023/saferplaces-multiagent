@@ -51,7 +51,7 @@ class FinalResponderInstructions:
                     ))
                     conversation_context = Prompt(dict(
                         header="[CONVERSATION HISTORY]",
-                        message=ContextBuilder.conversation_history(state, max_messages=10)
+                        message=ContextBuilder.conversation_history(state, max_messages=7)
                     ))
                     nowtime = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
                     message = (

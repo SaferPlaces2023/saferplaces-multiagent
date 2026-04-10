@@ -138,8 +138,9 @@ class LayerSymbologyTool(BaseTool):
 
         # 7. Produce MapCommand
         command = MapCommand(
+            command_session=self.state.get("map_commands_session"),
             type="set_layer_style",
-            payload={"layer_id": layer_id, "style": style},
+            payload={"layer_id": layer['src'], "style": style},
         )
         existing_commands: list = list(self.state.get("map_commands") or [])
         existing_commands.append(command.to_dict())

@@ -91,6 +91,7 @@ class RegisterShapeTool(BaseTool):
 
         # Emit sync_shapes MapCommand so the frontend can display the registered shape (BUG-3 fix — PLN-015)
         cmd = MapCommand(
+            command_session=self.state.get("map_commands_session"),
             type="sync_shapes",
             payload={
                 "shape_id": drawn.shape_id,

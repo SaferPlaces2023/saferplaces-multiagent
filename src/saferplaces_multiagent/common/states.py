@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import datetime
+
+import pandas as pd
+
 from textwrap import indent
 
 from typing_extensions import Annotated, Literal, TypedDict
@@ -130,6 +133,7 @@ class MABaseGraphState(TypedDict):
     # DOC: on-demand map agent state (PLN-014)
     shapes_registry: Annotated[Sequence[dict], merge_shape_registry]
     map_commands: Annotated[List[dict], merge_map_commands]
+    map_commands_session: Optional[str]
     map_request: Optional[str]
     map_invocation: AIMessage
     map_viewport: Optional[Tuple[float, float, float, float]]
@@ -186,6 +190,8 @@ class StateManager:
         # Clear map agent temporary state (PLN-014)
         state['map_request'] = None
         state['map_commands'] = []
+        state['map_commands_session'] = utils.random_id8()
+        
         StateManager._clear_specialized_agent_state(state, 'map')
 
     @staticmethod
@@ -264,6 +270,7 @@ class StateManager:
         # Clear map agent temporary state; map_viewport and drawn_shapes_registry are persistent (PLN-014)
         state['map_request'] = None
         state['map_commands'] = []
+        state['map_commands_session'] = utils.random_id8()
         StateManager._clear_specialized_agent_state(state, 'map')
         
 
@@ -319,7 +326,9 @@ def merge_CoT(left: Sequence[dict], right: Sequence[dict]) -> Sequence[dict]:
 
 def merge_map_commands(left: List[dict], right: List[dict]) -> List[dict]:
     """Concatenate map commands, deduplicating sync_shapes by shape_id (last wins)."""
-    combined = list(left or []) + list(right or [])
+    current_map_commands_session = right[0].get("command_session") if right else None
+    combined_dirty = list(left or []) + list(right or [])
+    combined = [cmd for cmd in combined_dirty if cmd.get("command_session") == current_map_commands_session]
     result: List[dict] = []
     seen_sync_shape_idx: dict[str, int] = {}  # shape_id → position in result
     for cmd in combined:

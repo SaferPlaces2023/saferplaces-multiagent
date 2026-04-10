@@ -88,7 +88,7 @@ class MoveMapViewTool(BaseTool):
         if viewport is None:
             return f"Error: LLM did not return a valid viewport for request: {user_request!r}"
 
-        cmd = MapCommand(type="move_view", payload=viewport)
+        cmd = MapCommand(command_session=self.state.get("map_commands_session"), type="move_view", payload=viewport)
         commands = list(self.state.get("map_commands") or [])
         commands.append(cmd.to_dict())
         self.state["map_commands"] = commands

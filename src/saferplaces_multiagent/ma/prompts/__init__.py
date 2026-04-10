@@ -26,10 +26,10 @@ class Prompt:
         return message_type(content=self.message)
 
 from . import (
+    map_agent_prompts,
     supervisor_agent_prompts,
     request_parser_prompts,
     final_responder_prompts,
     safercast_agent_prompts,
     models_agent_prompts,
-    map_agent_prompts,
 )
